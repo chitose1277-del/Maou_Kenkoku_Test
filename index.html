@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>魔王城 — 建造・散策プロトタイプ</title>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d0a14; --panel:#221a2e; --panel2:#2c2238; --line:#463658; --ink:#e9dfcd; --ink-dim:#a89bb5; --gold:#d9a441;
+  --disp:'Shippori Mincho',serif; --body:'Noto Sans JP',sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--body);overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+#top{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);z-index:5}
+.brand{font-family:var(--disp);font-weight:700;color:var(--gold);font-size:15px}
+.clock{display:flex;gap:10px;align-items:center;font-size:12px}
+.clock-time{font-weight:700;color:var(--ink)}
+.clock-phase{color:var(--gold);background:var(--panel2);border-radius:6px;padding:2px 8px;font-size:11px}
+.clock-day{color:var(--ink-dim)}
+.res{display:flex;gap:14px;font-size:13px;color:var(--ink-dim)}
+
+#floors{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:10px;gap:10px}
+.floor{position:relative;border-radius:10px;overflow-x:auto;overflow-y:hidden;height:130px;
+  background:linear-gradient(#241b30,#1a1424 60%,#150f1e);border:1px solid var(--line);scroll-behavior:auto}
+.floor.dim{opacity:.4;filter:grayscale(.5)}
+.floor-label{position:absolute;top:6px;left:10px;font-size:11px;color:var(--ink-dim);
+  background:rgba(13,10,20,.7);padding:2px 8px;border-radius:8px;z-index:3}
+.floor-track{position:relative;height:100%}
+
+.slot{position:absolute;bottom:10px;height:78px;border-radius:8px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px}
+.slot.filled{background:rgba(44,34,56,.7);border:1px solid var(--line)}
+.slot.empty{border:2px dashed #4a3a5a;background:repeating-linear-gradient(45deg,rgba(255,255,255,.02),rgba(255,255,255,.02) 8px,transparent 8px,transparent 16px)}
+.empty-mark{font-size:20px;color:var(--gold);opacity:.7}
+.empty-label{font-size:10px;color:var(--ink-dim)}
+.fac-icon .art{width:34px;height:34px;display:block}
+.fac-label{font-size:10px;color:var(--ink-dim)}
+.sprite-sm svg{width:100%;height:100%}
+.bubble{position:absolute;top:-14px;background:var(--gold);color:#1a1424;width:24px;height:24px;
+  border-radius:50% 50% 50% 4px;display:flex;align-items:center;justify-content:center;font-size:12px;
+  box-shadow:0 0 0 3px rgba(217,164,65,.25);animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+.npc{position:absolute;bottom:10px;text-align:center;width:44px;transform:translateX(-50%);transition:left .12s linear}
+.npc.dimmed{opacity:.35}
+.npc .art{width:32px;height:32px;display:block;margin:0 auto}
+.npc-name{font-size:8px;color:var(--ink-dim);white-space:nowrap;background:rgba(13,10,20,.6);border-radius:6px;padding:0 3px}
+
+.player{position:absolute;bottom:56px;text-align:center;width:50px;transform:translateX(-50%);z-index:4;transition:left .08s linear}
+.player-body{width:40px;height:40px;border-radius:50%;background:#221a2e;border:2px solid var(--gold);
+  display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto}
+.player-name{font-size:9px;color:var(--gold);white-space:nowrap}
+
+#controls{display:flex;justify-content:center;align-items:center;gap:10px;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+#controls button{width:52px;height:44px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);
+  color:var(--ink);font-size:18px;cursor:pointer}
+#controls button:active{background:var(--gold);color:#1a1424}
+#controls .interact{background:#3a2c1a;border-color:var(--gold);color:var(--gold);font-weight:700;width:80px}
+#controls .debug{background:#2a1a1a;border-color:#8a4a4a;color:#e0a0a0;font-size:12px;width:56px}
+.hint-desktop{font-size:11px;color:var(--ink-dim);padding:0 12px}
+
+#overlay{position:fixed;inset:0;background:rgba(8,6,14,.5);display:none;align-items:flex-end;justify-content:center;z-index:20;padding-bottom:90px}
+#overlay.show{display:flex}
+.panel{background:var(--panel);border:1px solid var(--gold);border-radius:10px;padding:14px;width:92%;max-width:480px}
+.panel-head{font-family:var(--disp);color:var(--gold);font-size:14px;margin-bottom:8px}
+.panel-body{font-size:13px;line-height:1.8}
+.panel-hint{font-size:10px;color:var(--ink-dim);margin-top:8px;text-align:right}
+.build-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.build-item{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);
+  padding:8px 4px;font-size:11px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.build-item .art{width:28px;height:28px}
+.build-item small{color:var(--ink-dim);font-size:9px}
+.build-item.disabled{opacity:.4}
+
+.panel.assign{max-height:70vh;overflow-y:auto}
+.roster-col-label{font-size:11px;color:var(--gold);margin:10px 0 4px}
+.roster-list{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto}
+.roster-row{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:6px;padding:4px 8px;font-size:12px}
+.roster-row .art{width:24px;height:24px;flex:none}
+.roster-row span{flex:1}
+.roster-row small{color:var(--ink-dim);font-size:10px;display:block}
+.roster-empty{font-size:11px;color:var(--ink-dim);padding:6px 0}
+.mini-btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:5px;
+  padding:3px 8px;font-size:10px;cursor:pointer}
+.mini-btn.primary{background:#3a2c1a;border-color:var(--gold);color:var(--gold)}
+.mini-btn[disabled]{opacity:.35;cursor:default}
+.mini-tag{font-size:9px;color:var(--ink-dim);background:var(--panel);border-radius:5px;padding:3px 8px}
+.mini-tag.regular{color:var(--gold);border:1px solid var(--gold);background:transparent}
+.role-tag{position:absolute;top:-6px;font-size:8px;border-radius:4px;padding:0 3px;z-index:2}
+.role-tag.staff{background:#5b8fd6;color:#0d0a14}
+.role-tag.customer{background:var(--gold);color:#1a1424}
+.role-tag.sleep{background:#4a4a5a;color:#dcd6e8}
+.role-tag.prepare{background:#7a6a3a;color:#fff6d8}
+.panel-hint-note{font-size:10px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
+.fac-sub{font-size:8px;color:var(--ink-dim)}
+.chat-preview{background:var(--panel2);border-left:3px solid var(--gold);border-radius:6px;
+  padding:8px 10px;margin-bottom:8px;font-size:12px}
+
+#toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(10px);background:#3a2c48;
+  border:1px solid var(--gold);border-radius:8px;padding:8px 16px;opacity:0;transition:.2s;z-index:30;font-size:12px}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+::-webkit-scrollbar{height:6px}::-webkit-scrollbar-thumb{background:#3a2c48;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top"></header>
+  <main id="floors"></main>
+  <div id="controls">
+    <button onclick="btnFloor(-1)">▲</button>
+    <button onclick="btnMove(-1)">◀</button>
+    <button class="interact" onclick="btnInteract()">調べる</button>
+    <button onclick="btnMove(1)">▶</button>
+    <button onclick="btnFloor(1)">▼</button>
+    <button class="debug" onclick="btnSkipHours(3)" title="動作確認用: 時間を3時間進める">+3h</button>
+    <span class="hint-desktop">矢印キー移動 / Spaceでインタラクト</span>
+  </div>
+</div>
+<div id="overlay"></div>
+<div id="toast"></div>
+
+<script src="src/art.js"></script>
+<script src="src/data.js"></script>
+<script src="src/art_species.js"></script>
+<script src="src/sfx.js"></script>
+<script src="src/game.js"></script>
+<script src="src/ui.js"></script>
+</body>
+</html>
