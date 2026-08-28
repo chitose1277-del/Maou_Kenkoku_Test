@@ -20,11 +20,16 @@ function randAxis() { return Math.round((Math.random() * 2 - 1) * 100); }
 // 施設マスタ(v0.4追補 §2.3の一部を採用)
 const FACILITY_TYPES = {
   smithy:   { name: '鍛造所',   icon: 'fire_imp', cost: { stone: 12 }, floorHint: '石材12', customers: false },
-  tavern:   { name: '酒場',     icon: 'siren',    cost: { stone: 8, wood: 4 }, floorHint: '石材8 木材4', customers: true },
-  restaurant:{ name: 'レストラン', icon: 'harpy',  cost: { stone: 10 }, floorHint: '石材10', customers: true },
-  arena:    { name: '闘技場',   icon: 'orc',      cost: { stone: 20 }, floorHint: '石材20', customers: true },
-  pachinko: { name: 'パチ屋',   icon: 'goblin',   cost: { stone: 16 }, floorHint: '石材16', customers: true },
-  idol:     { name: 'アイドルステージ', icon: 'griffon', cost: { rp: 400 }, floorHint: '研究点400', customers: true },
+  tavern:   { name: '酒場',     icon: 'siren',    cost: { stone: 8, wood: 4 }, floorHint: '石材8 木材4', customers: true,
+              spend: { min: 3, max: 8, items: ['エール', '蒸留酒', '果実酒'] } },
+  restaurant:{ name: 'レストラン', icon: 'harpy',  cost: { stone: 10 }, floorHint: '石材10', customers: true,
+              spend: { min: 4, max: 10, items: ['岩塩シチュー', '香辛料串焼き', '蜂蜜がけ焼き林檎'] } },
+  arena:    { name: '闘技場',   icon: 'orc',      cost: { stone: 20 }, floorHint: '石材20', customers: true,
+              spend: { min: 2, max: 5, items: ['観戦券'] } },
+  pachinko: { name: 'パチ屋',   icon: 'goblin',   cost: { stone: 16 }, floorHint: '石材16', customers: true,
+              spend: { min: 5, max: 15, items: ['台'], gamble: true } },
+  idol:     { name: 'アイドルステージ', icon: 'griffon', cost: { rp: 400 }, floorHint: '研究点400', customers: true,
+              spend: { min: 5, max: 20, items: ['応援グッズ'] } },
   dorm:     { name: '宿舎',     icon: 'golem',    cost: { wood: 10 }, floorHint: '木材10', customers: false },
   library:  { name: '図書館',   icon: 'sylph',    cost: { rp: 200 }, floorHint: '研究点200', customers: false },
   lab:      { name: '研究院',   icon: 'wyvern',   cost: { stone: 14 }, floorHint: '石材14', customers: false },
@@ -82,6 +87,10 @@ const SERVICE_LINES = {
     (staff, cust) => `${staff}と${cust}が、必要最低限のやり取りを交わしている。`,
   ],
 };
+
+// 消費時のフレーバー文言
+const SPEND_LINE = (name, item, amount) => `${name}が${item}に${amount}Gを使った。`;
+const SPEND_BROKE_LINE = (name) => `${name}は財布を覗き込み、諦めたようにため息をついた。今日は我慢だ。`;
 
 const GRUMBLE_LINES = [
   (a, b) => `${a}が声を落とす。「外交部のあいつ、また安請け合いしただろう」。${b}も頷いている。`,

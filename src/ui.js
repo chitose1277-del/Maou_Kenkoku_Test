@@ -119,7 +119,7 @@ const UI = {
       const idle = idleNpcs();
       const row = (n, actionHtml) => `<div class="roster-row">
           ${img('btl.sp_' + n.speciesKey, 'sprite-sm')}
-          <span>${n.name} <small>${n.species} ・ ${ACTIVITY_LABEL[n.activity] || '待機'}</small></span>
+          <span>${n.name} <small>${n.species} ・ ${ACTIVITY_LABEL[n.activity] || '待機'} ・ 💰${n.money}G</small></span>
           ${actionHtml}
         </div>`;
 

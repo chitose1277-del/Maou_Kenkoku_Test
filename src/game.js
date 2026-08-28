@@ -79,6 +79,8 @@ function addNpc() {
     leisureDay: -1,     // leisureSlotを決めた日(重複決定を防ぐ)
     visitUntil: 0,      // 根無し草(無職)の一時来訪が終わる時刻
     visitCounts: {},    // 施設スロットごとの来訪回数(常連度)
+    money: 10 + rnd(30), // 個体の資産(初期所持金)
+    lastSpend: null,    // 直近の消費(城内描写のネタ用) {label, amount}
   };
   G.npcs.push(npc);
   return npc;
@@ -161,6 +163,13 @@ function tickChat() {
         ...(slot.facility.customers || []),
       ];
       const occ = ids.map(id => G.npcs[id]).filter(Boolean);
+      if (!occ.length) return;
+      // 3割の確率で、居合わせた誰かの消費の様子をそのまま吹き出しにする(会話より軽い一言)
+      const spenders = occ.filter(n => n.lastSpend);
+      if (spenders.length && Math.random() < 0.3) {
+        slot.facility.chat = pick(spenders).lastSpend.text;
+        return;
+      }
       if (occ.length < 2) return;
       if (Math.random() > 0.7) return;
       let best = null, bestScore = -999, bestKind = 'peer';
@@ -221,6 +230,21 @@ function phaseTargetSlot(n, phase) {
   return null;
 }
 
+// ---------- 資産の消費 ----------
+function trySpend(n, slot) {
+  const info = FACILITY_TYPES[slot.facility.type];
+  if (!info.spend) return;
+  const { min, max, items } = info.spend;
+  const amount = min + rnd(max - min + 1);
+  if (n.money < amount) {
+    n.lastSpend = { broke: true, text: SPEND_BROKE_LINE(n.name) };
+    return;
+  }
+  n.money -= amount;
+  const item = pick(items);
+  n.lastSpend = { broke: false, text: SPEND_LINE(n.name, item, amount), amount, item };
+}
+
 function tickSchedule() {
   const phase = phaseAt(G.clockHours);
   G.npcs.filter(n => n.job !== null).forEach(n => {
@@ -251,6 +275,7 @@ function tickSchedule() {
         n.leisureSlot.facility.customers.push(n.id);
         const sid = slotId(n.leisureSlot);
         n.visitCounts[sid] = (n.visitCounts[sid] || 0) + 1;
+        trySpend(n, n.leisureSlot);
       } else if (n.home) {
         n.activity = 'sleep';
         moveNpcTo(n, n.home, slotFloorIndex(n.home));
@@ -289,6 +314,7 @@ function tickFreeVisit() {
     slot.facility.customers.push(n.id);
     const sid = slotId(slot);
     n.visitCounts[sid] = (n.visitCounts[sid] || 0) + 1;
+    trySpend(n, slot);
   });
 }
 setInterval(() => { if (G) tickFreeVisit(); }, 3000);
