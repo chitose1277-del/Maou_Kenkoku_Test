@@ -18,25 +18,37 @@ const NAME_TAIL = ['ガス', 'ドラ', 'ケル', 'ナ', 'モス', 'ザク', 'リ
 function randAxis() { return Math.round((Math.random() * 2 - 1) * 100); }
 
 // 施設マスタ(v0.4追補 §2.3の一部を採用)
+// tileW: 横方向の占有マス数。1マス=TILE_SIZE px(サイドビューなので高さは1フロア分で統一)
 const FACILITY_TYPES = {
-  smithy:   { name: '鍛造所',   icon: 'fire_imp', cost: { stone: 12 }, floorHint: '石材12', customers: false },
-  tavern:   { name: '酒場',     icon: 'siren',    cost: { stone: 8, wood: 4 }, floorHint: '石材8 木材4', customers: true,
+  mine:     { name: '採掘所',   icon: 'troll',    cost: { stone: 4 }, floorHint: '石材4', customers: false, tileW: 2,
+              produce: { key: 'stone', amount: 1 } },
+  sawmill:  { name: '伐採場',   icon: 'behemoth', cost: { wood: 4 }, floorHint: '木材4', customers: false, tileW: 2,
+              produce: { key: 'wood', amount: 1 } },
+  smithy:   { name: '鍛造所',   icon: 'fire_imp', cost: { stone: 12 }, floorHint: '石材12', customers: false, tileW: 2 },
+  tavern:   { name: '酒場',     icon: 'siren',    cost: { stone: 8, wood: 4 }, floorHint: '石材8 木材4', customers: true, tileW: 3,
               spend: { min: 3, max: 8, items: ['エール', '蒸留酒', '果実酒'] } },
-  restaurant:{ name: 'レストラン', icon: 'harpy',  cost: { stone: 10 }, floorHint: '石材10', customers: true,
+  restaurant:{ name: 'レストラン', icon: 'harpy',  cost: { stone: 10 }, floorHint: '石材10', customers: true, tileW: 3,
               spend: { min: 4, max: 10, items: ['岩塩シチュー', '香辛料串焼き', '蜂蜜がけ焼き林檎'] } },
-  arena:    { name: '闘技場',   icon: 'orc',      cost: { stone: 20 }, floorHint: '石材20', customers: true,
+  arena:    { name: '闘技場',   icon: 'orc',      cost: { stone: 20 }, floorHint: '石材20', customers: true, tileW: 4,
               spend: { min: 2, max: 5, items: ['観戦券'] } },
-  pachinko: { name: 'パチ屋',   icon: 'goblin',   cost: { stone: 16 }, floorHint: '石材16', customers: true,
+  pachinko: { name: 'パチ屋',   icon: 'goblin',   cost: { stone: 16 }, floorHint: '石材16', customers: true, tileW: 3,
               spend: { min: 5, max: 15, items: ['台'], gamble: true } },
-  idol:     { name: 'アイドルステージ', icon: 'griffon', cost: { rp: 400 }, floorHint: '研究点400', customers: true,
+  idol:     { name: 'アイドルステージ', icon: 'griffon', cost: { rp: 400 }, floorHint: '研究点400', customers: true, tileW: 4,
               spend: { min: 5, max: 20, items: ['応援グッズ'] } },
-  dorm:     { name: '宿舎',     icon: 'golem',    cost: { wood: 10 }, floorHint: '木材10', customers: false },
-  library:  { name: '図書館',   icon: 'sylph',    cost: { rp: 200 }, floorHint: '研究点200', customers: false },
-  lab:      { name: '研究院',   icon: 'wyvern',   cost: { stone: 14 }, floorHint: '石材14', customers: false },
+  dorm:     { name: '宿舎',     icon: 'golem',    cost: { wood: 10 }, floorHint: '木材10', customers: false, tileW: 3 },
+  library:  { name: '図書館',   icon: 'sylph',    cost: { rp: 200 }, floorHint: '研究点200', customers: false, tileW: 2 },
+  lab:      { name: '研究院',   icon: 'wyvern',   cost: { stone: 14 }, floorHint: '石材14', customers: false, tileW: 3 },
 };
 
 // 施設ごとの会話ネタ(occupantが2体以上いる時に使う)
 const CHAT_LINES = {
+  mine: [
+    (a, b) => `${a}がツルハシを振るい、${b}が崩れた石をかごに集めている。`,
+    (a, b) => `${a}と${b}が、今日の採掘量について話している。`,
+  ],
+  sawmill: [
+    (a, b) => `${a}が斧を振るい、${b}が丸太を運び出している。`,
+  ],
   tavern: [
     (a, b) => `「聞いてくれよ${b}、鉄髭王国の坑道の酒はとんでもなく効くんだ」と${a}が身振り手振りで話している。`,
     (a, b) => `${a}と${b}が、隅の席で静かにジョッキを傾けている。会話はほとんどない。`,

@@ -1,11 +1,12 @@
 // ============================================================
-// game.js — 状態・時間・歩行・建造・会話・スケジュールロジック
+// game.js — 状態・時間・横断面(サイドビュー)の歩行・建造・会話・スケジュール
 // ============================================================
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rnd(a.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 let G = null;
+const TILE = 56; // 1マスのピクセルサイズ(横方向)
 
 // ---------- 時間設計(v0.4追補: 1日=288秒、1時間=12秒) ----------
 const DAY_SECONDS = 288;
@@ -24,39 +25,49 @@ function fmtClock() {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-// フロア定義
-function makeFloor(name, width, initialFacilities) {
-  const slots = [];
-  let x = 20;
-  initialFacilities.forEach(f => {
-    const w = f ? 120 : 90;
-    slots.push({ x, w, facility: f ? { type: f, occupants: [], customers: [], residents: [] } : null });
-    x += w + 14;
-  });
-  while (x < width - 100) {
-    slots.push({ x, w: 90, facility: null });
-    x += 104;
-  }
-  return { name, width: Math.max(width, x + 20), slots };
+// ---------- フロア(横方向タイルの帯)定義 ----------
+let _buildingIdSeq = 0;
+function makeFloor(name, gridW, initialBuildings, opts) {
+  const floor = { name, gridW, width: gridW * TILE, buildings: [], stairsGx: gridW - 2 };
+  (initialBuildings || []).forEach(({ type, gx }) => placeBuilding(floor, type, gx));
+  opts = opts || {};
+  floor.locked = !!opts.locked;
+  floor.unlockRp = opts.unlockRp || 0;
+  return floor;
+}
+
+function placeBuilding(floor, type, gx) {
+  const info = FACILITY_TYPES[type];
+  const b = { id: ++_buildingIdSeq, type, gx, w: info.tileW, occupants: [], customers: [], residents: [], chat: null };
+  floor.buildings.push(b);
+  return b;
+}
+
+function rectFree(floor, gx, w) {
+  if (gx < 0 || gx + w > floor.gridW) return false;
+  if (gx < floor.stairsGx + 1 && gx + w > floor.stairsGx) return false; // 階段の上には建てられない
+  return !floor.buildings.some(b => gx < b.gx + b.w && gx + w > b.gx);
 }
 
 function newGame() {
   G = {
     day: 1,
-    clockHours: SCHEDULE.workStart + 1, // 開始は朝9時ごろから
+    clockHours: SCHEDULE.workStart + 1,
     resources: { stone: 40, wood: 24, rp: 120, gold: 800 },
     floors: [
-      makeFloor('鍛造の階', 760, ['smithy', null, 'tavern']),
-      makeFloor('生活の階', 700, ['dorm', 'restaurant', null]),
+      makeFloor('1階', 16, [{ type: 'mine', gx: 1 }, { type: 'smithy', gx: 4 }, { type: 'tavern', gx: 7 }]),
+      makeFloor('2階', 16, [{ type: 'sawmill', gx: 1 }, { type: 'dorm', gx: 4 }, { type: 'restaurant', gx: 8 }]),
+      makeFloor('3階', 12, [], { locked: true, unlockRp: 300 }),
+      makeFloor('4階', 12, [], { locked: true, unlockRp: 800 }),
     ],
     npcs: [],
-    player: { floor: 0, x: 90 },
+    player: { floor: 0, x: 3 * TILE },
     log: [],
     activeDialogue: null,
-    buildMenuSlot: null,
-    assignMenuSlot: null,
+    buildMenuTile: null,
+    assignMenuBuilding: null,
   };
-  for (let i = 0; i < 8; i++) addNpc();
+  for (let i = 0; i < 12; i++) addNpc();
   assignInitialPositions();
   assignHomesIfPossible();
   tickChat();
@@ -71,27 +82,23 @@ function addNpc() {
     species: sp[1], speciesKey: sp[0], attr,
     axis: { open: randAxis(), dream: randAxis(), logic: randAxis(), rule: randAxis() },
     floor: 0, x: 0,
-    job: null,          // 職場スロット(persistent。プレイヤーが配置/解除する)
-    home: null,         // 自宅(宿舎)スロット(persistent。宿舎があれば自動割当)
-    activity: 'idle',   // 'idle' | 'prepare' | 'work' | 'leisure' | 'sleep'
-    atSlot: null,       // 現在物理的にいるスロット(表示・会話プール用)
-    leisureSlot: null,  // 今夜の娯楽先(1日1回決める。nullなら真っ直ぐ帰宅)
-    leisureDay: -1,     // leisureSlotを決めた日(重複決定を防ぐ)
-    visitUntil: 0,      // 根無し草(無職)の一時来訪が終わる時刻
-    visitCounts: {},    // 施設スロットごとの来訪回数(常連度)
-    money: 10 + rnd(30), // 個体の資産(初期所持金)
-    lastSpend: null,    // 直近の消費(城内描写のネタ用) {label, amount}
+    job: null, home: null,
+    activity: 'idle',
+    atBuilding: null,
+    leisureBuilding: null,
+    leisureDay: -1,
+    visitUntil: 0,
+    visitCounts: {},
+    money: 10 + rnd(30),
+    lastSpend: null,
   };
   G.npcs.push(npc);
   return npc;
 }
 
-// 常連判定
 const REGULAR_THRESHOLD = 3;
-let _slotIdSeq = 0;
-function slotId(slot) { if (!slot._id) slot._id = ++_slotIdSeq; return slot._id; }
-function visitCount(npc, slot) { return npc.visitCounts[slotId(slot)] || 0; }
-function isRegular(npc, slot) { return visitCount(npc, slot) >= REGULAR_THRESHOLD; }
+function visitCount(npc, b) { return npc.visitCounts[b.id] || 0; }
+function isRegular(npc, b) { return visitCount(npc, b) >= REGULAR_THRESHOLD; }
 
 function affinity(a, b) {
   const near = (x, y, w) => w * (1 - Math.abs(x - y) / 200);
@@ -104,142 +111,161 @@ function affinity(a, b) {
   return clamp(s, -30, 100);
 }
 
-function findSlotsByType(type) {
+// ---------- 絆(bond) — その場のaffinityとは別に、一緒に過ごした時間で育つ関係の記憶 ----------
+// 個体ごとに { 相手のid: 絆値(0〜100) } を持つ。affinityが高いペアほど早く育ち、低いペアはほぼ育たない
+const BOND_FRIEND = 20;   // この値を超えると「仲がいい」認定
+const BOND_CLOSE = 50;    // この値を超えると「親しい」認定
+function bondKey(a, b) { return a.id < b.id ? `${a.id}_${b.id}` : `${b.id}_${a.id}`; }
+function getBond(a, b) { return (G.bonds && G.bonds[bondKey(a, b)]) || 0; }
+function growBond(a, b) {
+  if (!G.bonds) G.bonds = {};
+  const af = affinity(a, b);
+  if (af <= 0) return; // 相性が悪い相手とは絆が育たない(自然に疎遠のまま)
+  const key = bondKey(a, b);
+  const gain = (af / 100) * 3; // 相性が良いほど、1回の交流で育つ量が大きい
+  G.bonds[key] = clamp((G.bonds[key] || 0) + gain, 0, 100);
+}
+function bondLabel(v) {
+  if (v >= BOND_CLOSE) return '親しい仲';
+  if (v >= BOND_FRIEND) return '仲がいい';
+  if (v > 0) return '顔見知り';
+  return null;
+}
+// ある個体から見た「一番仲のいい相手」を返す(履歴・UI表示用)
+function bestFriendOf(npc) {
+  let best = null, bestV = 0;
+  G.npcs.forEach(other => {
+    if (other.id === npc.id) return;
+    const v = getBond(npc, other);
+    if (v > bestV) { bestV = v; best = other; }
+  });
+  return best ? { npc: best, bond: bestV } : null;
+}
+
+function allBuildingsFlat() {
   const out = [];
-  G.floors.forEach((floor, fi) => floor.slots.forEach(s => { if (s.facility && s.facility.type === type) out.push({ slot: s, floor: fi }); }));
+  G.floors.forEach((floor, fi) => { if (!floor.locked) floor.buildings.forEach(b => out.push({ building: b, floor: fi })); });
   return out;
 }
+function findBuildingsByType(type) { return allBuildingsFlat().filter(({ building }) => building.type === type); }
+function buildingFloorIndex(b) {
+  for (let fi = 0; fi < G.floors.length; fi++) if (G.floors[fi].buildings.includes(b)) return fi;
+  return 0;
+}
+function buildingCenterX(b) { return b.gx * TILE + b.w * TILE / 2; }
+function stairsX(floor) { return floor.stairsGx * TILE + TILE / 2; }
 
 function assignInitialPositions() {
   G.floors.forEach((floor, fi) => {
-    floor.slots.forEach(slot => {
-      if (!slot.facility || slot.facility.type === 'dorm') return;
+    floor.buildings.forEach(b => {
+      if (b.type === 'dorm') return;
       const n = 1 + rnd(2);
       for (let i = 0; i < n; i++) {
         const free = G.npcs.find(x => x.job === null && !x._placed);
         if (!free) break;
         free._placed = true;
-        free.floor = fi; free.x = slot.x + 16 + i * 26;
-        free.job = slot; free.atSlot = slot; free.activity = 'work';
-        slot.facility.occupants.push(free.id);
+        free.floor = fi; free.job = b; free.atBuilding = b; free.activity = 'work';
+        free.x = buildingCenterX(b) + (i - 0.5) * 18;
       }
     });
   });
+  G.floors.forEach(floor => floor.buildings.forEach(b => { b.occupants = G.npcs.filter(n => n.job === b).map(n => n.id); }));
+  const openFloors = G.floors.map((f, i) => i).filter(i => !G.floors[i].locked);
   G.npcs.filter(n => n.job === null).forEach(n => {
-    n.floor = rnd(G.floors.length);
-    n.x = 40 + rnd(G.floors[n.floor].width - 80);
+    n.floor = pick(openFloors);
+    n.x = 24 + rnd(G.floors[n.floor].width - 48);
   });
   G.npcs.forEach(n => delete n._placed);
 }
 
-// 宿舎ができたら、まだ自宅を持たない魔物に割り当てる
 function assignHomesIfPossible() {
-  const dorms = findSlotsByType('dorm');
+  const dorms = findBuildingsByType('dorm');
   if (!dorms.length) return;
   G.npcs.filter(n => n.home === null).forEach(n => {
-    const d = dorms.find(({ slot }) => slot.facility.residents.length < 4);
+    const d = dorms.find(({ building }) => building.residents.length < 4);
     if (!d) return;
-    n.home = d.slot;
-    d.slot.facility.residents.push(n.id);
+    n.home = d.building;
+    d.building.residents.push(n.id);
   });
 }
 
 // ---------- 会話生成(吹き出し) ----------
 const REGULAR_AFFINITY_MIN = 25;
-function pairKind(a, b, slot, af) {
+function pairKind(a, b, building, af) {
   const staffA = a.activity === 'work', staffB = b.activity === 'work';
   if (staffA === staffB) return 'peer';
   const customer = staffA ? b : a;
-  return (isRegular(customer, slot) && af >= REGULAR_AFFINITY_MIN) ? 'peer' : 'service';
+  return (isRegular(customer, building) && af >= REGULAR_AFFINITY_MIN) ? 'peer' : 'service';
 }
 
 function tickChat() {
-  G.floors.forEach((floor) => {
-    floor.slots.forEach(slot => {
-      if (!slot.facility) return;
-      slot.facility.chat = null;
-      const ids = [
-        ...slot.facility.occupants.filter(id => G.npcs[id] && G.npcs[id].activity === 'work'),
-        ...(slot.facility.customers || []),
-      ];
-      const occ = ids.map(id => G.npcs[id]).filter(Boolean);
-      if (!occ.length) return;
-      // 3割の確率で、居合わせた誰かの消費の様子をそのまま吹き出しにする(会話より軽い一言)
-      const spenders = occ.filter(n => n.lastSpend);
-      if (spenders.length && Math.random() < 0.3) {
-        slot.facility.chat = pick(spenders).lastSpend.text;
-        return;
-      }
-      if (occ.length < 2) return;
-      if (Math.random() > 0.7) return;
-      let best = null, bestScore = -999, bestKind = 'peer';
-      for (let i = 0; i < occ.length; i++) for (let j = i + 1; j < occ.length; j++) {
-        const rawAf = affinity(occ[i], occ[j]);
-        const kind = pairKind(occ[i], occ[j], slot, rawAf);
-        const score = rawAf - (kind === 'service' ? 40 : 0);
-        if (score > bestScore) { bestScore = score; best = [occ[i], occ[j]]; bestKind = kind; }
-      }
-      if (!best) return;
-      const [a, b] = best;
-      let lines;
-      if (bestKind === 'service') lines = SERVICE_LINES[slot.facility.type] || SERVICE_LINES.default;
-      else lines = bestScore < 8 ? GRUMBLE_LINES : (CHAT_LINES[slot.facility.type] || CHAT_LINES.default);
-      const [staffN, otherN] = a.activity === 'work' ? [a, b] : [b, a];
-      slot.facility.chat = pick(lines)(staffN.name, otherN.name);
-    });
-  });
+  G.floors.forEach(floor => floor.buildings.forEach(b => {
+    b.chat = null;
+    const ids = [
+      ...b.occupants.filter(id => G.npcs[id] && G.npcs[id].activity === 'work'),
+      ...(b.customers || []),
+    ];
+    const occ = ids.map(id => G.npcs[id]).filter(Boolean);
+    if (!occ.length) return;
+    const spenders = occ.filter(n => n.lastSpend);
+    if (spenders.length && Math.random() < 0.3) { b.chat = pick(spenders).lastSpend.text; return; }
+    if (occ.length < 2) return;
+    if (Math.random() > 0.7) return;
+    let best = null, bestScore = -999, bestKind = 'peer';
+    for (let i = 0; i < occ.length; i++) for (let j = i + 1; j < occ.length; j++) {
+      const rawAf = affinity(occ[i], occ[j]);
+      const kind = pairKind(occ[i], occ[j], b, rawAf);
+      const score = rawAf - (kind === 'service' ? 40 : 0);
+      if (score > bestScore) { bestScore = score; best = [occ[i], occ[j]]; bestKind = kind; }
+    }
+    if (!best) return;
+    const [a, c] = best;
+    let lines;
+    if (bestKind === 'service') lines = SERVICE_LINES[b.type] || SERVICE_LINES.default;
+    else { lines = bestScore < 8 ? GRUMBLE_LINES : (CHAT_LINES[b.type] || CHAT_LINES.default); growBond(a, c); }
+    const [staffN, otherN] = a.activity === 'work' ? [a, c] : [c, a];
+    b.chat = pick(lines)(staffN.name, otherN.name);
+  }));
 }
 setInterval(() => { if (G) tickChat(); }, 9000);
 
 // ---------- スケジュール(職を持つ魔物の1日) ----------
-function leaveCurrentSlot(n) {
-  if (!n.atSlot) return;
-  const fac = n.atSlot.facility;
-  if (fac) fac.customers = (fac.customers || []).filter(id => id !== n.id);
-  n.atSlot = null;
+function leaveCurrentBuilding(n) {
+  if (!n.atBuilding) return;
+  n.atBuilding.customers = (n.atBuilding.customers || []).filter(id => id !== n.id);
+  n.atBuilding = null;
 }
 
-function moveNpcTo(n, slot, floorIdx) {
-  leaveCurrentSlot(n);
-  n.floor = floorIdx;
-  n.x = slot.x + 12 + rnd(Math.max(8, slot.w - 24));
-  n.walkTargetX = n.x;
-  n.atSlot = slot;
-}
-
-function slotFloorIndex(slot) {
-  for (let fi = 0; fi < G.floors.length; fi++) if (G.floors[fi].slots.includes(slot)) return fi;
-  return 0;
+// 階段を経由して移動: 別フロアなら、まず現在フロアの階段位置へワープ→新フロアの階段位置に現れる→目的地へ歩く
+function moveNpcTo(n, building, floorIdx) {
+  leaveCurrentBuilding(n);
+  if (floorIdx !== n.floor) {
+    n.floor = floorIdx;
+    n.x = stairsX(G.floors[floorIdx]); // 階段を上り下りして現れる
+  }
+  n.walkTargetX = buildingCenterX(building) + (rnd(building.w * TILE - 16) - (building.w * TILE - 16) / 2);
+  n.atBuilding = building;
 }
 
 function opennessLeisureChance(n) {
   const t = clamp((n.axis.open + 100) / 200, 0, 1);
-  return 0.25 + t * 0.5; // 開放的なほど娯楽に出かけやすい(25%〜75%)
+  return 0.25 + t * 0.5;
 }
 
-function allSlotsFlat() {
-  const out = [];
-  G.floors.forEach((floor, fi) => floor.slots.forEach(s => out.push({ slot: s, floor: fi })));
-  return out;
-}
-
-function phaseTargetSlot(n, phase) {
+function buildingTargetFor(n, phase) {
   if (phase === 'work') return n.job;
-  if (phase === 'leisure_window') return n.leisureSlot || n.home;
+  if (phase === 'leisure_window') return n.leisureBuilding || n.home;
   if (phase === 'sleep' || phase === 'prepare') return n.home;
   return null;
 }
 
 // ---------- 資産の消費 ----------
-function trySpend(n, slot) {
-  const info = FACILITY_TYPES[slot.facility.type];
+function trySpend(n, building) {
+  const info = FACILITY_TYPES[building.type];
   if (!info.spend) return;
   const { min, max, items } = info.spend;
   const amount = min + rnd(max - min + 1);
-  if (n.money < amount) {
-    n.lastSpend = { broke: true, text: SPEND_BROKE_LINE(n.name) };
-    return;
-  }
+  if (n.money < amount) { n.lastSpend = { broke: true, text: SPEND_BROKE_LINE(n.name) }; return; }
   n.money -= amount;
   const item = pick(items);
   n.lastSpend = { broke: false, text: SPEND_LINE(n.name, item, amount), amount, item };
@@ -252,69 +278,74 @@ function tickSchedule() {
       n.leisureDay = G.day;
       const goOut = Math.random() < opennessLeisureChance(n);
       if (goOut) {
-        const candidates = allSlotsFlat().filter(({ slot }) => slot.facility && FACILITY_TYPES[slot.facility.type].customers
-          && slot !== n.job && (slot.facility.customers || []).length < 3);
-        n.leisureSlot = candidates.length ? pick(candidates).slot : null;
+        const candidates = allBuildingsFlat().filter(({ building }) => FACILITY_TYPES[building.type].customers
+          && building !== n.job && (building.customers || []).length < 3);
+        n.leisureBuilding = candidates.length ? pick(candidates).building : null;
       } else {
-        n.leisureSlot = null;
+        n.leisureBuilding = null;
       }
     }
     let targetPhase = phase;
-    if (phase === 'prepare' && !n.home) targetPhase = 'work'; // 自宅が無いなら早めに出勤扱い
-    const targetSlot = phaseTargetSlot(n, targetPhase);
-    if (n.activity === targetPhase && targetSlot === n.atSlot) return; // 変化なし
+    if (phase === 'prepare' && !n.home) targetPhase = 'work';
+    const targetBuilding = buildingTargetFor(n, targetPhase);
+    if (n.activity === targetPhase && targetBuilding === n.atBuilding) return;
 
     if (targetPhase === 'work') {
       n.activity = 'work';
-      moveNpcTo(n, n.job, slotFloorIndex(n.job));
+      moveNpcTo(n, n.job, buildingFloorIndex(n.job));
     } else if (targetPhase === 'leisure_window') {
-      if (n.leisureSlot) {
+      if (n.leisureBuilding) {
         n.activity = 'leisure';
-        moveNpcTo(n, n.leisureSlot, slotFloorIndex(n.leisureSlot));
-        n.leisureSlot.facility.customers = n.leisureSlot.facility.customers || [];
-        n.leisureSlot.facility.customers.push(n.id);
-        const sid = slotId(n.leisureSlot);
-        n.visitCounts[sid] = (n.visitCounts[sid] || 0) + 1;
-        trySpend(n, n.leisureSlot);
+        moveNpcTo(n, n.leisureBuilding, buildingFloorIndex(n.leisureBuilding));
+        n.leisureBuilding.customers.push(n.id);
+        n.visitCounts[n.leisureBuilding.id] = (n.visitCounts[n.leisureBuilding.id] || 0) + 1;
+        trySpend(n, n.leisureBuilding);
       } else if (n.home) {
         n.activity = 'sleep';
-        moveNpcTo(n, n.home, slotFloorIndex(n.home));
+        moveNpcTo(n, n.home, buildingFloorIndex(n.home));
       } else {
-        n.activity = 'idle'; leaveCurrentSlot(n); n.walkTargetX = n.x;
+        n.activity = 'idle'; leaveCurrentBuilding(n); n.walkTargetX = n.x;
       }
     } else if (targetPhase === 'sleep' || targetPhase === 'prepare') {
-      if (n.home) { n.activity = targetPhase; moveNpcTo(n, n.home, slotFloorIndex(n.home)); }
-      else { n.activity = 'idle'; leaveCurrentSlot(n); n.walkTargetX = n.x; }
+      if (n.home) { n.activity = targetPhase; moveNpcTo(n, n.home, buildingFloorIndex(n.home)); }
+      else { n.activity = 'idle'; leaveCurrentBuilding(n); n.walkTargetX = n.x; }
     }
   });
 }
 setInterval(() => { if (G) tickSchedule(); }, 1000);
+
+// ---------- 資源の産出(採掘所・伐採場) ----------
+function tickProduce() {
+  G.floors.forEach(floor => floor.buildings.forEach(b => {
+    const info = FACILITY_TYPES[b.type];
+    if (!info.produce) return;
+    const workers = b.occupants.filter(id => G.npcs[id] && G.npcs[id].activity === 'work').length;
+    if (!workers) return;
+    G.resources[info.produce.key] = (G.resources[info.produce.key] || 0) + info.produce.amount * workers;
+  }));
+}
+setInterval(() => { if (G) tickProduce(); }, 4000);
 
 // ---------- 無職(根無し草)の自由な来訪 ----------
 function tickFreeVisit() {
   const now = Date.now();
   G.npcs.forEach(n => {
     if (n.job === null && n.activity === 'leisure' && now > n.visitUntil) {
-      if (n.atSlot) n.atSlot.facility.customers = (n.atSlot.facility.customers || []).filter(id => id !== n.id);
-      n.activity = 'idle'; n.atSlot = null;
+      leaveCurrentBuilding(n); n.activity = 'idle';
     }
   });
   G.npcs.filter(n => n.job === null && n.activity === 'idle').forEach(n => {
     if (Math.random() > 0.12) return;
     const floor = G.floors[n.floor];
-    const candidates = floor.slots.filter(s => s.facility && FACILITY_TYPES[s.facility.type].customers &&
-      (s.facility.customers || []).length < 3);
+    const candidates = floor.buildings.filter(b => FACILITY_TYPES[b.type].customers && (b.customers || []).length < 3);
     if (!candidates.length) return;
-    const slot = pick(candidates);
-    n.activity = 'leisure'; n.atSlot = slot;
-    slot.facility.customers = slot.facility.customers || [];
-    n.x = slot.x + 12 + slot.facility.customers.length * 20;
-    n.walkTargetX = n.x;
+    const b = pick(candidates);
+    n.activity = 'leisure'; n.atBuilding = b;
+    n.x = buildingCenterX(b); n.walkTargetX = n.x;
     n.visitUntil = now + 15000 + rnd(20000);
-    slot.facility.customers.push(n.id);
-    const sid = slotId(slot);
-    n.visitCounts[sid] = (n.visitCounts[sid] || 0) + 1;
-    trySpend(n, slot);
+    b.customers.push(n.id);
+    n.visitCounts[b.id] = (n.visitCounts[b.id] || 0) + 1;
+    trySpend(n, b);
   });
 }
 setInterval(() => { if (G) tickFreeVisit(); }, 3000);
@@ -327,67 +358,80 @@ function tickClock(dtMs) {
 }
 setInterval(() => tickClock(200), 200);
 
-// ---------- プレイヤー移動 ----------
+// ---------- プレイヤー移動(横方向のみ・サイドビュー) ----------
 const MOVE_SPEED = 9;
 function movePlayer(dir) {
-  if (!G || G.activeDialogue || G.buildMenuSlot || G.assignMenuSlot) return;
+  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding) return;
   const floor = G.floors[G.player.floor];
-  G.player.x = clamp(G.player.x + dir * MOVE_SPEED, 20, floor.width - 20);
+  G.player.x = clamp(G.player.x + dir * MOVE_SPEED, 16, floor.width - 16);
+}
+function onStairs() {
+  const floor = G.floors[G.player.floor];
+  const gx = Math.floor(G.player.x / TILE);
+  return gx === floor.stairsGx;
 }
 function changeFloor(delta) {
-  if (!G || G.activeDialogue || G.buildMenuSlot || G.assignMenuSlot) return;
-  G.player.floor = clamp(G.player.floor + delta, 0, G.floors.length - 1);
+  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding) return true;
+  if (!onStairs()) return 'nostairs';
+  const target = clamp(G.player.floor + delta, 0, G.floors.length - 1);
+  if (target === G.player.floor) return true;
+  if (G.floors[target].locked) return false;
+  G.player.floor = target;
+  G.player.x = stairsX(G.floors[target]);
+  return true;
 }
 
-function nearestSlot() {
-  const floor = G.floors[G.player.floor];
-  let best = null, bestD = 60;
-  floor.slots.forEach(s => {
-    const center = s.x + s.w / 2;
-    const d = Math.abs(center - G.player.x);
-    if (d < bestD) { bestD = d; best = s; }
+// ---------- フロアのアンロック(研究点で階層が解放される) ----------
+function tickUnlock() {
+  G.floors.forEach(floor => {
+    if (floor.locked && G.resources.rp >= floor.unlockRp) {
+      floor.locked = false;
+      G.log.unshift(`${floor.name}が解放された(研究点${floor.unlockRp}到達)`);
+    }
   });
-  return best;
 }
+setInterval(() => { if (G) tickUnlock(); }, 2000);
+
+function playerGx() { return Math.floor(G.player.x / TILE); }
+function buildingAtTile(floor, gx) { return floor.buildings.find(b => gx >= b.gx && gx < b.gx + b.w); }
 
 function interact() {
   if (!G) return;
   if (G.activeDialogue) { G.activeDialogue = null; return; }
-  if (G.buildMenuSlot) { G.buildMenuSlot = null; return; }
-  if (G.assignMenuSlot) { G.assignMenuSlot = null; return; }
-  const slot = nearestSlot();
-  if (!slot) return;
-  if (!slot.facility) { G.buildMenuSlot = slot; return; }
-  G.assignMenuSlot = slot;
+  if (G.buildMenuTile) { G.buildMenuTile = null; G.buildPreviewType = null; return; }
+  if (G.assignMenuBuilding) { G.assignMenuBuilding = null; return; }
+  const floor = G.floors[G.player.floor];
+  const gx = playerGx();
+  const b = buildingAtTile(floor, gx);
+  if (b) { G.assignMenuBuilding = b; return; }
+  if (gx === floor.stairsGx) return; // 階段の上では建造も配置管理もできない
+  G.buildMenuTile = { floor: G.player.floor, gx };
 }
 
-function idleNpcs() {
-  // 配置操作で選べるのは「まだ職を持たない魔物」
-  return G.npcs.filter(n => n.job === null);
-}
+function idleNpcs() { return G.npcs.filter(n => n.job === null); }
 
-function assignNpc(npcId, slot) {
+function assignNpc(npcId, building) {
   const n = G.npcs.find(x => x.id === npcId);
   if (!n || n.job !== null) return;
-  if (slot.facility.occupants.length >= 4) return;
-  n.job = slot;
-  slot.facility.occupants.push(n.id);
-  if (phaseAt(G.clockHours) === 'work') { n.activity = 'work'; moveNpcTo(n, slot, slotFloorIndex(slot)); }
+  if (building.occupants.length >= 4) return;
+  n.job = building;
+  building.occupants.push(n.id);
+  if (phaseAt(G.clockHours) === 'work') { n.activity = 'work'; moveNpcTo(n, building, buildingFloorIndex(building)); }
 }
 
-function unassignNpc(npcId, slot) {
+function unassignNpc(npcId, building) {
   const n = G.npcs.find(x => x.id === npcId);
   if (!n) return;
-  slot.facility.occupants = slot.facility.occupants.filter(id => id !== npcId);
-  n.job = null; n.activity = 'idle'; leaveCurrentSlot(n); n.walkTargetX = n.x;
+  building.occupants = building.occupants.filter(id => id !== npcId);
+  n.job = null; n.activity = 'idle'; leaveCurrentBuilding(n); n.walkTargetX = n.x;
 }
 
 // ---------- NPCの徘徊(無職・待機時間帯のみ) ----------
 function tickWander() {
   G.npcs.forEach(n => {
     if (n.activity === 'work' || n.activity === 'leisure') {
-      if (n.atSlot && Math.random() < 0.15) {
-        n.walkTargetX = n.atSlot.x + 10 + Math.random() * Math.max(10, n.atSlot.w - 20);
+      if (n.atBuilding && Math.random() < 0.15) {
+        n.walkTargetX = buildingCenterX(n.atBuilding) + (Math.random() - 0.5) * (n.atBuilding.w * TILE - 16);
       }
     } else if (n.activity === 'idle') {
       if (n.walkTargetX === undefined || Math.abs(n.x - n.walkTargetX) < 4) {
@@ -397,7 +441,6 @@ function tickWander() {
         } else n.walkTargetX = n.x;
       }
     }
-    // sleep / prepare 中は動かない(自宅で静止)
   });
 }
 setInterval(() => { if (G) tickWander(); }, 4000);
@@ -408,25 +451,28 @@ function tickWalkStep() {
     if (n.walkTargetX === undefined) return;
     const d = n.walkTargetX - n.x;
     if (Math.abs(d) < 1.5) return;
-    n.x += Math.sign(d) * Math.min(Math.abs(d), 2.2);
+    n.x += Math.sign(d) * Math.min(Math.abs(d), 2.4);
   });
 }
 setInterval(tickWalkStep, 100);
 
 function build(type) {
-  const slot = G.buildMenuSlot;
-  if (!slot) return false;
-  const cost = FACILITY_TYPES[type].cost;
+  const tile = G.buildMenuTile;
+  if (!tile) return false;
+  const floor = G.floors[tile.floor];
+  const info = FACILITY_TYPES[type];
+  if (!rectFree(floor, tile.gx, info.tileW)) return 'nospace';
+  const cost = info.cost;
   for (const [k, v] of Object.entries(cost)) if ((G.resources[k] || 0) < v) return false;
   for (const [k, v] of Object.entries(cost)) G.resources[k] -= v;
-  slot.facility = { type, occupants: [], customers: [], residents: [] };
+  const b = placeBuilding(floor, type, tile.gx);
   if (type !== 'dorm') {
     const jobless = G.npcs.filter(n => n.job === null).slice(0, 2);
-    jobless.forEach((n) => { assignNpc(n.id, slot); });
+    jobless.forEach((n) => { assignNpc(n.id, b); });
   } else {
     assignHomesIfPossible();
   }
-  G.buildMenuSlot = null;
-  G.log.unshift(`${FACILITY_TYPES[type].name}を建造した`);
+  G.buildMenuTile = null; G.buildPreviewType = null;
+  G.log.unshift(`${info.name}を建造した`);
   return true;
 }

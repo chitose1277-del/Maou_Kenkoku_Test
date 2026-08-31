@@ -1,5 +1,5 @@
 // ============================================================
-// ui.js — 描画
+// ui.js — 描画(サイドビュー・多層構造版)
 // ============================================================
 const $ = (s) => document.querySelector(s);
 
@@ -29,49 +29,84 @@ const UI = {
         <span class="clock-day">${G.day}日目</span>
       </div>
       <div class="res">
-        <span>🪨 ${G.resources.stone}</span>
-        <span>🪵 ${G.resources.wood}</span>
-        <span>📖 ${G.resources.rp}</span>
+        <span>🪨 ${Math.floor(G.resources.stone)}</span>
+        <span>🪵 ${Math.floor(G.resources.wood)}</span>
+        <span>📖 ${Math.floor(G.resources.rp)}</span>
         <span>💰 ${G.resources.gold}G</span>
       </div>`;
   },
 
   renderFloors() {
     const el = $('#floors');
-    el.innerHTML = G.floors.map((floor, fi) => {
-      const isCurrent = fi === G.player.floor;
-      const npcsHere = G.npcs.filter(n => n.floor === fi);
-      const slotsHtml = floor.slots.map(slot => this.renderSlot(slot, fi)).join('');
-      const npcsHtml = npcsHere.map(n => this.renderNpc(n)).join('');
-      const playerHtml = isCurrent ? this.renderPlayer() : '';
-      return `<div class="floor ${isCurrent ? 'current' : 'dim'}" data-floor="${fi}">
-        <div class="floor-label">${floor.name}</div>
-        <div class="floor-track" style="width:${floor.width}px">
-          ${slotsHtml}${npcsHtml}${playerHtml}
-        </div>
-      </div>`;
-    }).join('');
+    // 上の階から順に表示(見た目の積み上がり順)。フロア配列は下から0,1,2...なので逆順に描く
+    const order = G.floors.map((_, i) => i).reverse();
+    el.innerHTML = order.map(fi => this.renderFloor(fi)).join('');
 
-    const cur = el.querySelector('.floor.current');
+    const cur = el.querySelector(`.floor[data-floor="${G.player.floor}"] .floor-track`);
     if (cur) {
-      const target = G.player.x - cur.clientWidth / 2;
-      cur.scrollLeft = Math.max(0, target);
+      const target = G.player.x - cur.parentElement.clientWidth / 2;
+      cur.parentElement.scrollLeft = Math.max(0, target);
     }
   },
 
-  renderSlot(slot) {
-    if (!slot.facility) {
-      return `<div class="slot empty" style="left:${slot.x}px;width:${slot.w}px">
-        <div class="empty-mark">＋</div>
-        <div class="empty-label">空き地</div>
-      </div>`;
+  renderFloor(fi) {
+    const floor = G.floors[fi];
+    const isCurrent = fi === G.player.floor;
+    if (floor.locked) return this.renderLockedFloor(floor, isCurrent);
+    const npcsHere = G.npcs.filter(n => n.floor === fi);
+    const buildingsHtml = floor.buildings.map(b => this.renderBuilding(b)).join('');
+    const stairsHtml = `<div class="stairs" style="left:${floor.stairsGx * TILE}px;width:${TILE}px">🪜</div>`;
+    const npcsHtml = npcsHere.map(n => this.renderNpc(n)).join('');
+    const playerHtml = isCurrent ? this.renderPlayer() : '';
+    const showGrid = isCurrent && G.buildMenuTile && G.buildMenuTile.floor === fi;
+    const gridHtml = showGrid ? this.renderGrid(floor) : '';
+    const previewHtml = showGrid ? this.renderPlacementPreview(floor) : '';
+    return `<div class="floor ${isCurrent ? 'current' : 'dim'} ${showGrid ? 'building-mode' : ''}" data-floor="${fi}">
+      <div class="floor-label">${floor.name}</div>
+      <div class="floor-scroll">
+        <div class="floor-track" style="width:${floor.width}px">
+          ${gridHtml}${buildingsHtml}${stairsHtml}${previewHtml}${npcsHtml}${playerHtml}
+        </div>
+      </div>
+    </div>`;
+  },
+
+  renderGrid(floor) {
+    let lines = '';
+    for (let i = 0; i <= floor.gridW; i++) {
+      lines += `<div class="grid-line" style="left:${i * TILE}px"></div>`;
     }
-    const info = FACILITY_TYPES[slot.facility.type];
-    const chatBubble = slot.facility.chat
-      ? `<div class="bubble" title="インタラクトで会話を聞く">💬</div>` : '';
-    const extra = slot.facility.type === 'dorm'
-      ? `<div class="fac-sub">${slot.facility.residents.length}体入居</div>` : '';
-    return `<div class="slot filled" style="left:${slot.x}px;width:${slot.w}px">
+    return `<div class="grid-overlay">${lines}</div>`;
+  },
+
+  renderPlacementPreview(floor) {
+    const tile = G.buildMenuTile;
+    const type = G.buildPreviewType;
+    if (!type) return '';
+    const info = FACILITY_TYPES[type];
+    const ok = rectFree(floor, tile.gx, info.tileW);
+    return `<div class="placement-preview ${ok ? 'ok' : 'bad'}" style="left:${tile.gx * TILE}px;width:${info.tileW * TILE}px">
+      <span>${ok ? '設置可能' : '空きマス不足'}</span>
+    </div>`;
+  },
+
+  renderLockedFloor(floor) {
+    const pct = clamp(G.resources.rp / floor.unlockRp * 100, 0, 100);
+    return `<div class="floor locked">
+      <div class="floor-label">${floor.name}</div>
+      <div class="locked-body">
+        <div class="locked-icon">🔒</div>
+        <div class="locked-text">研究点 ${Math.floor(G.resources.rp)} / ${floor.unlockRp} で解放</div>
+        <div class="locked-bar"><i style="width:${pct}%"></i></div>
+      </div>
+    </div>`;
+  },
+
+  renderBuilding(b) {
+    const info = FACILITY_TYPES[b.type];
+    const chatBubble = b.chat ? `<div class="bubble" title="インタラクトで会話を聞く">💬</div>` : '';
+    const extra = b.type === 'dorm' ? `<div class="fac-sub">${b.residents.length}体入居</div>` : '';
+    return `<div class="building" style="left:${b.gx * TILE}px;width:${b.w * TILE}px">
       ${chatBubble}
       <div class="fac-icon">${img('btl.sp_' + info.icon, 'sprite-sm')}</div>
       <div class="fac-label">${info.name}</div>
@@ -109,19 +144,24 @@ const UI = {
       root.classList.add('show');
       return;
     }
-    if (G.assignMenuSlot) {
-      const slot = G.assignMenuSlot;
-      const info = FACILITY_TYPES[slot.facility.type];
-      const isDorm = slot.facility.type === 'dorm';
-      const staff = slot.facility.occupants.map(id => G.npcs[id]).filter(Boolean);
-      const residents = (slot.facility.residents || []).map(id => G.npcs[id]).filter(Boolean);
-      const customers = (slot.facility.customers || []).map(id => G.npcs[id]).filter(Boolean);
+    if (G.assignMenuBuilding) {
+      const b = G.assignMenuBuilding;
+      const info = FACILITY_TYPES[b.type];
+      const isDorm = b.type === 'dorm';
+      const staff = b.occupants.map(id => G.npcs[id]).filter(Boolean);
+      const residents = (b.residents || []).map(id => G.npcs[id]).filter(Boolean);
+      const customers = (b.customers || []).map(id => G.npcs[id]).filter(Boolean);
       const idle = idleNpcs();
-      const row = (n, actionHtml) => `<div class="roster-row">
+      const row = (n, actionHtml) => {
+        const bf = bestFriendOf(n);
+        const bfLabel = bf ? bondLabel(bf.bond) : null;
+        const bfHtml = bfLabel ? `<br><span class="bond-tag">${bfLabel}: ${bf.npc.name}(${Math.round(bf.bond)})</span>` : '';
+        return `<div class="roster-row">
           ${img('btl.sp_' + n.speciesKey, 'sprite-sm')}
-          <span>${n.name} <small>${n.species} ・ ${ACTIVITY_LABEL[n.activity] || '待機'} ・ 💰${n.money}G</small></span>
+          <span>${n.name} <small>${n.species} ・ ${ACTIVITY_LABEL[n.activity] || '待機'} ・ 💰${n.money}G</small>${bfHtml}</span>
           ${actionHtml}
         </div>`;
+      };
 
       let body;
       if (isDorm) {
@@ -133,8 +173,8 @@ const UI = {
         const staffHtml = staff.map(n => row(n, `<button class="mini-btn" onclick="doUnassign(${n.id})">外す</button>`)).join('')
           || `<div class="roster-empty">誰もいない</div>`;
         const customerHtml = customers.map(n => {
-          const vc = visitCount(n, slot);
-          const tag = isRegular(n, slot) ? `<span class="mini-tag regular">顔なじみ(${vc}回)</span>` : `<span class="mini-tag">滞在中(${vc}回目)</span>`;
+          const vc = visitCount(n, b);
+          const tag = isRegular(n, b) ? `<span class="mini-tag regular">顔なじみ(${vc}回)</span>` : `<span class="mini-tag">滞在中(${vc}回目)</span>`;
           return row(n, tag);
         }).join('') || `<div class="roster-empty">今は誰も来ていない</div>`;
         const idleHtml = idle.map(n => row(n, `<button class="mini-btn primary" onclick="doAssign(${n.id})" ${staff.length >= 4 ? 'disabled' : ''}>配置</button>`)).join('')
@@ -142,16 +182,20 @@ const UI = {
         const customerSection = info.customers ? `
           <div class="roster-col-label">客(${customers.length}/3・ふらっと立ち寄り中)</div>
           <div class="roster-list">${customerHtml}</div>` : '';
+        const produceNote = info.produce
+          ? `<div class="panel-hint-note">就業中のスタッフ1体につき ${info.produce.amount} ${info.produce.key === 'stone' ? '石材' : '木材'}/4秒 を産出中(現在 ${staff.filter(n => n.activity === 'work').length}体稼働)</div>`
+          : '';
         body = `
           <div class="roster-col-label">スタッフ(${staff.length}/4)</div>
           <div class="roster-list">${staffHtml}</div>
+          ${produceNote}
           ${customerSection}
           <div class="roster-col-label">待機中(タップで配置)</div>
           <div class="roster-list">${idleHtml}</div>`;
       }
-      const chatHtml = slot.facility.chat ? `<div class="panel-body chat-preview">💬 ${slot.facility.chat}</div>` : '';
+      const chatHtml = b.chat ? `<div class="panel-body chat-preview">💬 ${b.chat}</div>` : '';
       root.innerHTML = `<div class="panel assign">
-        <div class="panel-head">${info.name} — 配置管理</div>
+        <div class="panel-head">${info.name}(横${info.tileW}マス) — 配置管理</div>
         ${chatHtml}
         ${body}
         <div class="panel-hint">スペースキーで閉じる</div>
@@ -159,17 +203,18 @@ const UI = {
       root.classList.add('show');
       return;
     }
-    if (G.buildMenuSlot) {
+    if (G.buildMenuTile) {
       const items = Object.entries(FACILITY_TYPES).map(([key, f]) => {
         const affordable = Object.entries(f.cost).every(([k, v]) => (G.resources[k] || 0) >= v);
-        return `<button class="build-item ${affordable ? '' : 'disabled'}" onclick="doBuild('${key}')" ${affordable ? '' : 'disabled'}>
+        return `<button class="build-item ${affordable ? '' : 'disabled'}" onclick="doBuild('${key}')"
+          onmouseenter="setPreview('${key}')" ontouchstart="setPreview('${key}')" ${affordable ? '' : 'disabled'}>
           ${img('btl.sp_' + f.icon, 'sprite-sm')}
           <div>${f.name}</div>
-          <small>${f.floorHint}</small>
+          <small>横${f.tileW}マス・${f.floorHint}</small>
         </button>`;
       }).join('');
       root.innerHTML = `<div class="panel build">
-        <div class="panel-head">何を建てますか</div>
+        <div class="panel-head">何を建てますか <small class="mini">(項目にカーソルを合わせると設置範囲を確認できます)</small></div>
         <div class="build-grid">${items}</div>
         <div class="panel-hint">スペースキーで閉じる</div>
       </div>`;
@@ -181,19 +226,16 @@ const UI = {
   },
 };
 
+function setPreview(type) { G.buildPreviewType = type; UI.renderFloors(); }
+
 function doBuild(type) {
-  const ok = build(type);
-  if (!ok) { flashToast('資材が足りません'); return; }
+  const result = build(type);
+  if (result === 'nospace') { flashToast('その場所には大きすぎます(空きマス不足)'); return; }
+  if (!result) { flashToast('資材が足りません'); return; }
   UI.render();
 }
-function doAssign(npcId) {
-  assignNpc(npcId, G.assignMenuSlot);
-  UI.render();
-}
-function doUnassign(npcId) {
-  unassignNpc(npcId, G.assignMenuSlot);
-  UI.render();
-}
+function doAssign(npcId) { assignNpc(npcId, G.assignMenuBuilding); UI.render(); }
+function doUnassign(npcId) { unassignNpc(npcId, G.assignMenuBuilding); UI.render(); }
 
 function flashToast(msg) {
   const t = $('#toast');
@@ -203,27 +245,30 @@ function flashToast(msg) {
   window._toastT = setTimeout(() => t.classList.remove('show'), 1500);
 }
 
+function floorChangeResultToast(result) {
+  if (result === 'nostairs') flashToast('階段の上でないと昇り降りできません');
+  else if (result === false) flashToast('この階はまだ解放されていません');
+}
+
 // ---------- 入力 ----------
 window.addEventListener('keydown', (e) => {
   if (!G) return;
   if (e.key === 'ArrowLeft') movePlayer(-1);
   else if (e.key === 'ArrowRight') movePlayer(1);
-  else if (e.key === 'ArrowUp') changeFloor(-1);
-  else if (e.key === 'ArrowDown') changeFloor(1);
+  else if (e.key === 'ArrowUp') floorChangeResultToast(changeFloor(1));
+  else if (e.key === 'ArrowDown') floorChangeResultToast(changeFloor(-1));
   else if (e.key === ' ') { e.preventDefault(); interact(); }
   else return;
   UI.render();
 });
 
-// モバイル用オンスクリーンボタン
 function btnMove(dir) { movePlayer(dir); UI.render(); }
-function btnFloor(delta) { changeFloor(delta); UI.render(); }
 function btnInteract() { interact(); UI.render(); }
+function btnFloor(delta) { floorChangeResultToast(changeFloor(delta)); UI.render(); }
 
-// デバッグ用: 時間を早送り(動作確認をしやすくするため)
 function btnSkipHours(h) {
   if (!G) return;
-  const iterations = Math.round(h * 60); // 200ms刻みでh時間分進める(1時間=12000ms→60回)
+  const iterations = Math.round(h * 60);
   for (let i = 0; i < iterations; i++) tickClock(200);
   tickSchedule(); tickChat();
   UI.render();
