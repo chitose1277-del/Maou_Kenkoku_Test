@@ -1,5 +1,5 @@
 // ============================================================
-// game.js — 状態・時間・横断面(サイドビュー)の歩行・建造・会話・スケジュール
+// game.js — 状態・時間・横断面(サイドビュー)の歩行・建造・解体・会話・スケジュール
 // ============================================================
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rnd(a.length)];
@@ -61,11 +61,14 @@ function newGame() {
       makeFloor('4階', 12, [], { locked: true, unlockRp: 800 }),
     ],
     npcs: [],
+    bonds: {},
     player: { floor: 0, x: 3 * TILE },
     log: [],
     activeDialogue: null,
     buildMenuTile: null,
+    buildPreviewType: null,
     assignMenuBuilding: null,
+    transferNpcId: null,
   };
   for (let i = 0; i < 12; i++) addNpc();
   assignInitialPositions();
@@ -112,17 +115,16 @@ function affinity(a, b) {
 }
 
 // ---------- 絆(bond) — その場のaffinityとは別に、一緒に過ごした時間で育つ関係の記憶 ----------
-// 個体ごとに { 相手のid: 絆値(0〜100) } を持つ。affinityが高いペアほど早く育ち、低いペアはほぼ育たない
-const BOND_FRIEND = 20;   // この値を超えると「仲がいい」認定
-const BOND_CLOSE = 50;    // この値を超えると「親しい」認定
+const BOND_FRIEND = 20;
+const BOND_CLOSE = 50;
 function bondKey(a, b) { return a.id < b.id ? `${a.id}_${b.id}` : `${b.id}_${a.id}`; }
 function getBond(a, b) { return (G.bonds && G.bonds[bondKey(a, b)]) || 0; }
 function growBond(a, b) {
   if (!G.bonds) G.bonds = {};
   const af = affinity(a, b);
-  if (af <= 0) return; // 相性が悪い相手とは絆が育たない(自然に疎遠のまま)
+  if (af <= 0) return;
   const key = bondKey(a, b);
-  const gain = (af / 100) * 3; // 相性が良いほど、1回の交流で育つ量が大きい
+  const gain = (af / 100) * 3;
   G.bonds[key] = clamp((G.bonds[key] || 0) + gain, 0, 100);
 }
 function bondLabel(v) {
@@ -131,7 +133,6 @@ function bondLabel(v) {
   if (v > 0) return '顔見知り';
   return null;
 }
-// ある個体から見た「一番仲のいい相手」を返す(履歴・UI表示用)
 function bestFriendOf(npc) {
   let best = null, bestV = 0;
   G.npcs.forEach(other => {
@@ -236,12 +237,11 @@ function leaveCurrentBuilding(n) {
   n.atBuilding = null;
 }
 
-// 階段を経由して移動: 別フロアなら、まず現在フロアの階段位置へワープ→新フロアの階段位置に現れる→目的地へ歩く
 function moveNpcTo(n, building, floorIdx) {
   leaveCurrentBuilding(n);
   if (floorIdx !== n.floor) {
     n.floor = floorIdx;
-    n.x = stairsX(G.floors[floorIdx]); // 階段を上り下りして現れる
+    n.x = stairsX(G.floors[floorIdx]);
   }
   n.walkTargetX = buildingCenterX(building) + (rnd(building.w * TILE - 16) - (building.w * TILE - 16) / 2);
   n.atBuilding = building;
@@ -354,7 +354,7 @@ setInterval(() => { if (G) tickFreeVisit(); }, 3000);
 function tickClock(dtMs) {
   if (!G) return;
   G.clockHours += dtMs * HOURS_PER_MS;
-  if (G.clockHours >= 24) { G.clockHours -= 24; G.day++; }
+  if (G.clockHours >= 24) { G.clockHours -= 24; G.day++; tickPayday(); tickQuitCheck(); }
 }
 setInterval(() => tickClock(200), 200);
 
@@ -404,7 +404,7 @@ function interact() {
   const gx = playerGx();
   const b = buildingAtTile(floor, gx);
   if (b) { G.assignMenuBuilding = b; return; }
-  if (gx === floor.stairsGx) return; // 階段の上では建造も配置管理もできない
+  if (gx === floor.stairsGx) return;
   G.buildMenuTile = { floor: G.player.floor, gx };
 }
 
@@ -424,6 +424,95 @@ function unassignNpc(npcId, building) {
   if (!n) return;
   building.occupants = building.occupants.filter(id => id !== npcId);
   n.job = null; n.activity = 'idle'; leaveCurrentBuilding(n); n.walkTargetX = n.x;
+}
+
+// ---------- 異動(手動) ----------
+// 「異動」ボタンで対象を選び、別の施設で「ここに異動させる」を押すと即座に移す
+function startTransfer(npcId) {
+  G.transferNpcId = npcId;
+  G.assignMenuBuilding = null;
+}
+function cancelTransfer() { G.transferNpcId = null; }
+function transferNpc(npcId, newBuilding) {
+  const n = G.npcs.find(x => x.id === npcId);
+  if (!n || !n.job) { G.transferNpcId = null; return; }
+  if (newBuilding.occupants.length >= 4) return;
+  const oldBuilding = n.job;
+  const oldInfo = FACILITY_TYPES[oldBuilding.type];
+  unassignNpc(npcId, oldBuilding);
+  assignNpc(npcId, newBuilding);
+  G.transferNpcId = null;
+  G.log.unshift(`${n.name}が${oldInfo.name}から${FACILITY_TYPES[newBuilding.type].name}へ異動した`);
+}
+
+// ---------- 給料の支給(日次) ----------
+const DAILY_WAGE = 4; // 一律の日給(ランク別日給は個体ランクシステム未実装のため今回は見送り)
+function tickPayday() {
+  const staffCount = G.npcs.filter(n => n.job !== null).length;
+  const totalWage = staffCount * DAILY_WAGE;
+  if (G.resources.gold >= totalWage) {
+    G.resources.gold -= totalWage;
+    G.npcs.filter(n => n.job !== null).forEach(n => { n.money += DAILY_WAGE; });
+    if (staffCount) G.log.unshift(`給料日: ${staffCount}体に日給${DAILY_WAGE}Gずつ支払った(国庫-${totalWage}G)`);
+  } else {
+    G.log.unshift(`給料日: 国庫が足りず給料を支払えなかった(不払い)`);
+  }
+}
+
+// ---------- 離職(自然発生・日次判定) ----------
+// 職場の同僚との相性が悪いほど辞めやすく、絆の深い同僚がいると辞めにくくなる
+function tickQuitCheck() {
+  G.npcs.filter(n => n.job !== null).forEach(n => {
+    const building = n.job;
+    const coworkerIds = building.occupants.filter(id => id !== n.id);
+    const coworkers = coworkerIds.map(id => G.npcs.find(x => x.id === id)).filter(Boolean);
+    let chance = 0.03; // 基礎離職率(1日あたり)
+    let sour = false;
+    if (coworkers.length) {
+      const avgAff = coworkers.reduce((s, c) => s + affinity(n, c), 0) / coworkers.length;
+      if (avgAff < 0) { chance += clamp(-avgAff / 100, 0, 1) * 0.05; sour = true; }
+      const hasCloseBond = coworkers.some(c => getBond(n, c) >= BOND_FRIEND);
+      if (hasCloseBond) chance *= 0.35; // 仲のいい同僚がいると辞めにくい
+    }
+    if (Math.random() < chance) {
+      const info = FACILITY_TYPES[building.type];
+      unassignNpc(n.id, building);
+      const lines = sour ? QUIT_LINES_SOUR : QUIT_LINES_RANDOM;
+      G.log.unshift(pick(lines)(n.name, info.name));
+    }
+  });
+}
+
+// ---------- 施設の解体(新規) ----------
+function demolishBuilding(building) {
+  const floor = G.floors.find(f => f.buildings.includes(building));
+  if (!floor) return;
+  const info = FACILITY_TYPES[building.type];
+  // 就業中のスタッフを解雇(無職に戻す。離職の記録はまだ持たない簡易版)
+  building.occupants.slice().forEach(id => {
+    const n = G.npcs.find(x => x.id === id);
+    if (!n) return;
+    n.job = null; n.activity = 'idle';
+    if (n.atBuilding === building) n.atBuilding = null;
+    n.walkTargetX = n.x;
+  });
+  // 宿舎なら入居者を退去させる
+  (building.residents || []).slice().forEach(id => {
+    const n = G.npcs.find(x => x.id === id);
+    if (n) n.home = null;
+  });
+  // 今まさに滞在中の客がいれば追い出す
+  (building.customers || []).slice().forEach(id => {
+    const n = G.npcs.find(x => x.id === id);
+    if (n) { if (n.atBuilding === building) n.atBuilding = null; if (n.activity === 'leisure') n.activity = 'idle'; }
+  });
+  // 誰かの「今夜の外出先」に指定されていたら解除
+  G.npcs.forEach(n => { if (n.leisureBuilding === building) n.leisureBuilding = null; });
+  // 資材を半分だけ回収(全額ではない: 気軽に建て壊しできすぎるとタイル配置の緊張感が失われるため)
+  Object.entries(info.cost).forEach(([k, v]) => { G.resources[k] = (G.resources[k] || 0) + Math.floor(v / 2); });
+  floor.buildings = floor.buildings.filter(b => b !== building);
+  G.log.unshift(`${info.name}を解体した(資材の半分を回収)`);
+  G.assignMenuBuilding = null;
 }
 
 // ---------- NPCの徘徊(無職・待機時間帯のみ) ----------

@@ -104,6 +104,16 @@ const SERVICE_LINES = {
 const SPEND_LINE = (name, item, amount) => `${name}が${item}に${amount}Gを使った。`;
 const SPEND_BROKE_LINE = (name) => `${name}は財布を覗き込み、諦めたようにため息をついた。今日は我慢だ。`;
 
+// 離職時のフレーバー文言
+const QUIT_LINES_SOUR = [
+  (name, fac) => `${name}が${fac}を辞めた。人間関係に疲れたのか、誰にも告げず静かに荷物をまとめていた。`,
+  (name, fac) => `${name}が${fac}を辞めた。最後まで誰とも馴染めなかったようだ。`,
+];
+const QUIT_LINES_RANDOM = [
+  (name, fac) => `${name}が${fac}を辞めた。特に理由は語らなかった。`,
+  (name, fac) => `${name}が${fac}を辞めた。「気分を変えたくなった」とだけ言い残して。`,
+];
+
 const GRUMBLE_LINES = [
   (a, b) => `${a}が声を落とす。「外交部のあいつ、また安請け合いしただろう」。${b}も頷いている。`,
   (a, b) => `${a}と${b}が、遠くを歩く誰かを横目に、こそこそ話している。`,

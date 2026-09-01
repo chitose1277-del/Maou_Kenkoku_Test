@@ -21,6 +21,10 @@ const UI = {
 
   renderTop() {
     const phase = phaseAt(G.clockHours);
+    const transferring = G.transferNpcId !== null && G.npcs.find(x => x.id === G.transferNpcId);
+    const transferBanner = transferring
+      ? `<div class="transfer-banner">異動先を選択中: <b>${transferring.name}</b> を移動させる施設で「ここに異動させる」を押してください
+          <button class="mini-btn" onclick="doCancelTransfer()">取りやめる</button></div>` : '';
     $('#top').innerHTML = `
       <div class="brand">魔王城 — 建造・散策</div>
       <div class="clock">
@@ -34,11 +38,11 @@ const UI = {
         <span>📖 ${Math.floor(G.resources.rp)}</span>
         <span>💰 ${G.resources.gold}G</span>
       </div>`;
+    $('#transferBanner').innerHTML = transferBanner;
   },
 
   renderFloors() {
     const el = $('#floors');
-    // 上の階から順に表示(見た目の積み上がり順)。フロア配列は下から0,1,2...なので逆順に描く
     const order = G.floors.map((_, i) => i).reverse();
     el.innerHTML = order.map(fi => this.renderFloor(fi)).join('');
 
@@ -73,9 +77,7 @@ const UI = {
 
   renderGrid(floor) {
     let lines = '';
-    for (let i = 0; i <= floor.gridW; i++) {
-      lines += `<div class="grid-line" style="left:${i * TILE}px"></div>`;
-    }
+    for (let i = 0; i <= floor.gridW; i++) lines += `<div class="grid-line" style="left:${i * TILE}px"></div>`;
     return `<div class="grid-overlay">${lines}</div>`;
   },
 
@@ -170,7 +172,8 @@ const UI = {
           <div class="roster-list">${residentHtml}</div>
           <div class="panel-hint-note">宿舎は職を持つ魔物に自動で割り当てられます。就業時間外はここへ帰り、夜は眠ります。</div>`;
       } else {
-        const staffHtml = staff.map(n => row(n, `<button class="mini-btn" onclick="doUnassign(${n.id})">外す</button>`)).join('')
+        const staffHtml = staff.map(n => row(n, `<button class="mini-btn" onclick="doUnassign(${n.id})">外す</button>
+          <button class="mini-btn" onclick="startTransfer(${n.id})">異動</button>`)).join('')
           || `<div class="roster-empty">誰もいない</div>`;
         const customerHtml = customers.map(n => {
           const vc = visitCount(n, b);
@@ -194,10 +197,20 @@ const UI = {
           <div class="roster-list">${idleHtml}</div>`;
       }
       const chatHtml = b.chat ? `<div class="panel-body chat-preview">💬 ${b.chat}</div>` : '';
+      const refund = Object.entries(info.cost).map(([k, v]) => `${Math.floor(v / 2)}${k === 'stone' ? '石材' : k === 'wood' ? '木材' : k === 'rp' ? '研究点' : k}`).join('・');
+      const transferring = G.transferNpcId !== null && G.npcs.find(x => x.id === G.transferNpcId);
+      const transferHtml = (transferring && !isDorm && transferring.job !== b)
+        ? `<button class="mini-btn primary transfer-here" onclick="doTransferHere()" ${b.occupants.length >= 4 ? 'disabled' : ''}>ここに${transferring.name}を異動させる</button>`
+        : '';
       root.innerHTML = `<div class="panel assign">
-        <div class="panel-head">${info.name}(横${info.tileW}マス) — 配置管理</div>
+        <div class="panel-head-row">
+          <div class="panel-head">${info.name}(横${info.tileW}マス) — 配置管理</div>
+          <button class="mini-btn danger" onclick="doDemolish()">解体する</button>
+        </div>
+        ${transferHtml}
         ${chatHtml}
         ${body}
+        <div class="panel-hint-note">解体すると資材の半分(${refund})が返却され、スタッフ・入居者は待機に戻ります。</div>
         <div class="panel-hint">スペースキーで閉じる</div>
       </div>`;
       root.classList.add('show');
@@ -236,6 +249,20 @@ function doBuild(type) {
 }
 function doAssign(npcId) { assignNpc(npcId, G.assignMenuBuilding); UI.render(); }
 function doUnassign(npcId) { unassignNpc(npcId, G.assignMenuBuilding); UI.render(); }
+function doTransferHere() {
+  transferNpc(G.transferNpcId, G.assignMenuBuilding);
+  G.assignMenuBuilding = null;
+  UI.render();
+}
+function doCancelTransfer() { cancelTransfer(); UI.render(); }
+function doDemolish() {
+  const b = G.assignMenuBuilding;
+  if (!b) return;
+  const info = FACILITY_TYPES[b.type];
+  if (!confirm(`${info.name}を解体しますか?(資材の半分が返却され、スタッフ・入居者は待機に戻ります)`)) return;
+  demolishBuilding(b);
+  UI.render();
+}
 
 function flashToast(msg) {
   const t = $('#toast');

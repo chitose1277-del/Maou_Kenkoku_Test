@@ -36,12 +36,8 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .floor-scroll{position:relative;height:100%;overflow-x:auto;overflow-y:hidden;border-radius:10px;
   background-image:linear-gradient(#241b30,#1a1424 60%,#150f1e)}
 .floor-track{position:relative;height:100%}
-
-.stairs{position:absolute;bottom:0;top:0;display:flex;align-items:center;justify-content:center;
-  font-size:20px;background:rgba(217,164,65,.08);border-left:1px dashed rgba(217,164,65,.4);
-  border-right:1px dashed rgba(217,164,65,.4)}
-
 .floor.building-mode .floor-scroll{outline:2px solid rgba(217,164,65,.5);outline-offset:-2px}
+
 .grid-overlay{position:absolute;inset:0;pointer-events:none;z-index:1}
 .grid-line{position:absolute;top:0;bottom:0;width:1px;background:rgba(217,164,65,.18)}
 .placement-preview{position:absolute;top:20px;bottom:8px;border-radius:8px;z-index:2;
@@ -49,6 +45,10 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
   border:2px dashed;pointer-events:none}
 .placement-preview.ok{background:rgba(95,179,122,.18);border-color:#5fb37a;color:#bdf0cf}
 .placement-preview.bad{background:rgba(214,76,76,.18);border-color:#d64c4c;color:#f5b8b8}
+
+.stairs{position:absolute;bottom:0;top:0;display:flex;align-items:center;justify-content:center;
+  font-size:20px;background:rgba(217,164,65,.08);border-left:1px dashed rgba(217,164,65,.4);
+  border-right:1px dashed rgba(217,164,65,.4)}
 
 .building{position:absolute;bottom:8px;top:20px;border-radius:8px;background:rgba(44,34,56,.75);
   border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
@@ -88,6 +88,8 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 #overlay{position:fixed;inset:0;background:rgba(8,6,14,.5);display:none;align-items:flex-end;justify-content:center;z-index:20;padding-bottom:120px}
 #overlay.show{display:flex}
 .panel{background:var(--panel);border:1px solid var(--gold);border-radius:10px;padding:14px;width:92%;max-width:480px}
+.panel-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.panel-head-row .panel-head{margin-bottom:0}
 .panel-head{font-family:var(--disp);color:var(--gold);font-size:14px;margin-bottom:8px}
 .panel-head .mini{font-family:var(--body);color:var(--ink-dim);font-size:10px;font-weight:400}
 .panel-body{font-size:13px;line-height:1.8}
@@ -99,7 +101,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .build-item small{color:var(--ink-dim);font-size:9px}
 .build-item.disabled{opacity:.4}
 
-.panel.assign{max-height:60vh;overflow-y:auto}
+.panel.assign{max-height:64vh;overflow-y:auto}
 .roster-col-label{font-size:11px;color:var(--gold);margin:10px 0 4px}
 .roster-list{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto}
 .roster-row{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
@@ -109,8 +111,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .roster-row small{color:var(--ink-dim);font-size:10px;display:block}
 .roster-empty{font-size:11px;color:var(--ink-dim);padding:6px 0}
 .mini-btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:5px;
-  padding:3px 8px;font-size:10px;cursor:pointer}
+  padding:3px 8px;font-size:10px;cursor:pointer;flex:none}
 .mini-btn.primary{background:#3a2c1a;border-color:var(--gold);color:var(--gold)}
+.mini-btn.danger{background:#3a1a1a;border-color:#a85a5a;color:#e0a0a0}
 .mini-btn[disabled]{opacity:.35;cursor:default}
 .mini-tag{font-size:9px;color:var(--ink-dim);background:var(--panel);border-radius:5px;padding:3px 8px}
 .mini-tag.regular{color:var(--gold);border:1px solid var(--gold);background:transparent}
@@ -118,6 +121,11 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .panel-hint-note{font-size:10px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
 .chat-preview{background:var(--panel2);border-left:3px solid var(--gold);border-radius:6px;
   padding:8px 10px;margin-bottom:8px;font-size:12px}
+
+#transferBanner{background:#3a2c1a;border-bottom:1px solid var(--gold);color:var(--gold);
+  font-size:11px;padding:6px 16px;display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap}
+#transferBanner:empty{display:none;padding:0;border:none}
+.transfer-here{display:block;width:100%;margin-bottom:8px;text-align:center;font-size:12px;padding:8px}
 
 #toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(10px);background:#3a2c48;
   border:1px solid var(--gold);border-radius:8px;padding:8px 16px;opacity:0;transition:.2s;z-index:30;font-size:12px}
@@ -128,6 +136,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 <body>
 <div id="app">
   <header id="top"></header>
+  <div id="transferBanner"></div>
   <main id="floors"></main>
   <div id="controls">
     <button onclick="btnFloor(1)" class="floorbtn">▲昇る</button>
