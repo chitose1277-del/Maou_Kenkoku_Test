@@ -71,6 +71,8 @@ function newGame() {
     transferNpcId: null,
     historyNpcId: null,
     logPanelOpen: false,
+    demoOver: false,
+    demoSummary: null,
   };
   for (let i = 0; i < 12; i++) addNpc();
   assignInitialPositions();
@@ -394,18 +396,44 @@ function tickFreeVisit() {
 }
 setInterval(() => { if (G) tickFreeVisit(); }, 3000);
 
+// ---------- 体験版の終了(14日間) ----------
+const DEMO_DAYS = 14;
+function generateDemoSummary() {
+  let quits = 0, transfers = 0, newBonds = 0;
+  G.npcs.forEach(n => {
+    n.history.forEach(h => {
+      if (h.text.includes('辞めた')) quits++;
+      else if (h.text.includes('異動した')) transfers++;
+      else if (h.text.includes('仲がいい間柄になった') || h.text.includes('親しい仲になった')) newBonds++;
+    });
+  });
+  return {
+    quits, transfers, newBonds,
+    staffCount: G.npcs.filter(n => n.job !== null).length,
+    totalNpcs: G.npcs.length,
+    notableLogs: G.log.filter(t => !t.startsWith('給料日')).slice(0, 8),
+  };
+}
+function tickDemoEnd() {
+  if (G.demoOver) return;
+  if (G.day > DEMO_DAYS) {
+    G.demoOver = true;
+    G.demoSummary = generateDemoSummary();
+  }
+}
+
 // ---------- ゲームクロック進行 ----------
 function tickClock(dtMs) {
-  if (!G) return;
+  if (!G || G.demoOver) return; // 体験版終了後は時間を止める
   G.clockHours += dtMs * HOURS_PER_MS;
-  if (G.clockHours >= 24) { G.clockHours -= 24; G.day++; tickPayday(); tickQuitCheck(); }
+  if (G.clockHours >= 24) { G.clockHours -= 24; G.day++; tickPayday(); tickQuitCheck(); tickDemoEnd(); }
 }
 setInterval(() => tickClock(200), 200);
 
 // ---------- プレイヤー移動(横方向のみ・サイドビュー) ----------
 const MOVE_SPEED = 9;
 function movePlayer(dir) {
-  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return;
+  if (!G || G.demoOver || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return;
   const floor = G.floors[G.player.floor];
   G.player.x = clamp(G.player.x + dir * MOVE_SPEED, 16, floor.width - 16);
 }
@@ -415,7 +443,7 @@ function onStairs() {
   return gx === floor.stairsGx;
 }
 function changeFloor(delta) {
-  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return true;
+  if (!G || G.demoOver || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return true;
   if (!onStairs()) return 'nostairs';
   const target = clamp(G.player.floor + delta, 0, G.floors.length - 1);
   if (target === G.player.floor) return true;
@@ -441,6 +469,7 @@ function buildingAtTile(floor, gx) { return floor.buildings.find(b => gx >= b.gx
 
 function interact() {
   if (!G) return;
+  if (G.demoOver) return;
   if (G.logPanelOpen) { G.logPanelOpen = false; return; }
   if (G.historyNpcId !== null) { G.historyNpcId = null; return; }
   if (G.activeDialogue) { G.activeDialogue = null; return; }

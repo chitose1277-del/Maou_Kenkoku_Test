@@ -137,6 +137,26 @@ const UI = {
 
   renderOverlay() {
     const root = $('#overlay');
+    if (G.demoOver) {
+      const s = G.demoSummary;
+      const logsHtml = s.notableLogs.length
+        ? s.notableLogs.map(t => `<div class="log-row">${t}</div>`).join('')
+        : `<div class="roster-empty">目立った出来事はなかった</div>`;
+      root.innerHTML = `<div class="panel demo-end">
+        <div class="panel-head">体験版はここまでです</div>
+        <div class="panel-body">14日間、魔王城をご覧いただきありがとうございました。</div>
+        <div class="demo-stats">
+          <div class="demo-stat"><b>${s.totalNpcs}</b>体の魔物のうち<b>${s.staffCount}</b>体が働いていました</div>
+          <div class="demo-stat"><b>${s.transfers}</b>件の異動がありました</div>
+          <div class="demo-stat"><b>${s.quits}</b>件の離職がありました</div>
+          <div class="demo-stat"><b>${s.newBonds}</b>件、新しい絆が生まれました</div>
+        </div>
+        <div class="roster-col-label">この期間の出来事(一部)</div>
+        <div class="log-list">${logsHtml}</div>
+      </div>`;
+      root.classList.add('show');
+      return;
+    }
     if (G.logPanelOpen) {
       const entries = G.log.length
         ? G.log.slice(0, 40).map(t => `<div class="log-row">${t}</div>`).join('')
@@ -331,9 +351,6 @@ function btnSkipHours(h) {
   const iterations = Math.round(h * 60);
   for (let i = 0; i < iterations; i++) tickClock(200);
   tickSchedule(); tickChat();
-
-
-  
   UI.render();
 }
 
