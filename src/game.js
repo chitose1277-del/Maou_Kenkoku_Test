@@ -69,6 +69,8 @@ function newGame() {
     buildPreviewType: null,
     assignMenuBuilding: null,
     transferNpcId: null,
+    historyNpcId: null,
+    logPanelOpen: false,
   };
   for (let i = 0; i < 12; i++) addNpc();
   assignInitialPositions();
@@ -94,13 +96,28 @@ function addNpc() {
     visitCounts: {},
     money: 10 + rnd(30),
     lastSpend: null,
+    history: [],
   };
   G.npcs.push(npc);
   return npc;
 }
 
+// ---------- 個体の履歴(伝記) ----------
+function addHistory(npc, text) {
+  npc.history.push({ day: G.day, text });
+  if (npc.history.length > 100) npc.history.shift(); // 際限なく肥大化しないよう上限を設ける
+}
+
 const REGULAR_THRESHOLD = 3;
 function visitCount(npc, b) { return npc.visitCounts[b.id] || 0; }
+function recordVisit(npc, building) {
+  const before = npc.visitCounts[building.id] || 0;
+  const after = before + 1;
+  npc.visitCounts[building.id] = after;
+  if (before < REGULAR_THRESHOLD && after >= REGULAR_THRESHOLD) {
+    addHistory(npc, `${FACILITY_TYPES[building.type].name}の顔なじみになった`);
+  }
+}
 function isRegular(npc, b) { return visitCount(npc, b) >= REGULAR_THRESHOLD; }
 
 function affinity(a, b) {
@@ -124,8 +141,18 @@ function growBond(a, b) {
   const af = affinity(a, b);
   if (af <= 0) return;
   const key = bondKey(a, b);
+  const before = G.bonds[key] || 0;
   const gain = (af / 100) * 3;
-  G.bonds[key] = clamp((G.bonds[key] || 0) + gain, 0, 100);
+  const after = clamp(before + gain, 0, 100);
+  G.bonds[key] = after;
+  // 節目(仲がいい/親しい仲)を跨いだ瞬間だけ履歴に残す
+  if (before < BOND_FRIEND && after >= BOND_FRIEND) {
+    addHistory(a, `${b.name}と仲がいい間柄になった`);
+    addHistory(b, `${a.name}と仲がいい間柄になった`);
+  } else if (before < BOND_CLOSE && after >= BOND_CLOSE) {
+    addHistory(a, `${b.name}と親しい仲になった`);
+    addHistory(b, `${a.name}と親しい仲になった`);
+  }
 }
 function bondLabel(v) {
   if (v >= BOND_CLOSE) return '親しい仲';
@@ -298,7 +325,7 @@ function tickSchedule() {
         n.activity = 'leisure';
         moveNpcTo(n, n.leisureBuilding, buildingFloorIndex(n.leisureBuilding));
         n.leisureBuilding.customers.push(n.id);
-        n.visitCounts[n.leisureBuilding.id] = (n.visitCounts[n.leisureBuilding.id] || 0) + 1;
+        recordVisit(n, n.leisureBuilding);
         trySpend(n, n.leisureBuilding);
       } else if (n.home) {
         n.activity = 'sleep';
@@ -313,6 +340,23 @@ function tickSchedule() {
   });
 }
 setInterval(() => { if (G) tickSchedule(); }, 1000);
+
+// ---------- 世界パート連携(体験版簡略版) ----------
+// 本来はUnity側の世界パートから届く値だが、体験版ではこのプロトタイプ内で簡易シミュレートする。
+// 将来Unity側と繋ぐ時は、この関数の中身だけを実際の受信処理に差し替えれば良いようにしてある。
+function fetchWorldTrade() {
+  // 5国の中からランダムに1国を選び、その産品が届いたことにする(簡易シミュレーション)
+  const keys = Object.keys(TRADE_NATIONS);
+  const key = pick(keys);
+  return { nationKey: key, ...TRADE_NATIONS[key] };
+}
+function tickTrade() {
+  const trade = fetchWorldTrade();
+  G.resources[trade.convertsTo] = (G.resources[trade.convertsTo] || 0) + trade.amount;
+  const resLabel = trade.convertsTo === 'stone' ? '石材' : trade.convertsTo === 'wood' ? '木材' : trade.convertsTo === 'gold' ? '国庫' : trade.convertsTo;
+  G.log.unshift(`${trade.name}から${trade.good}が届いた(${resLabel}+${trade.amount})`);
+}
+setInterval(() => { if (G) tickTrade(); }, 20000); // 20秒ごとに1回、5国のどこかと交易が発生
 
 // ---------- 資源の産出(採掘所・伐採場) ----------
 function tickProduce() {
@@ -344,7 +388,7 @@ function tickFreeVisit() {
     n.x = buildingCenterX(b); n.walkTargetX = n.x;
     n.visitUntil = now + 15000 + rnd(20000);
     b.customers.push(n.id);
-    n.visitCounts[b.id] = (n.visitCounts[b.id] || 0) + 1;
+    recordVisit(n, b);
     trySpend(n, b);
   });
 }
@@ -361,7 +405,7 @@ setInterval(() => tickClock(200), 200);
 // ---------- プレイヤー移動(横方向のみ・サイドビュー) ----------
 const MOVE_SPEED = 9;
 function movePlayer(dir) {
-  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding) return;
+  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return;
   const floor = G.floors[G.player.floor];
   G.player.x = clamp(G.player.x + dir * MOVE_SPEED, 16, floor.width - 16);
 }
@@ -371,7 +415,7 @@ function onStairs() {
   return gx === floor.stairsGx;
 }
 function changeFloor(delta) {
-  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding) return true;
+  if (!G || G.activeDialogue || G.buildMenuTile || G.assignMenuBuilding || G.historyNpcId !== null || G.logPanelOpen) return true;
   if (!onStairs()) return 'nostairs';
   const target = clamp(G.player.floor + delta, 0, G.floors.length - 1);
   if (target === G.player.floor) return true;
@@ -397,6 +441,8 @@ function buildingAtTile(floor, gx) { return floor.buildings.find(b => gx >= b.gx
 
 function interact() {
   if (!G) return;
+  if (G.logPanelOpen) { G.logPanelOpen = false; return; }
+  if (G.historyNpcId !== null) { G.historyNpcId = null; return; }
   if (G.activeDialogue) { G.activeDialogue = null; return; }
   if (G.buildMenuTile) { G.buildMenuTile = null; G.buildPreviewType = null; return; }
   if (G.assignMenuBuilding) { G.assignMenuBuilding = null; return; }
@@ -410,12 +456,13 @@ function interact() {
 
 function idleNpcs() { return G.npcs.filter(n => n.job === null); }
 
-function assignNpc(npcId, building) {
+function assignNpc(npcId, building, opts) {
   const n = G.npcs.find(x => x.id === npcId);
   if (!n || n.job !== null) return;
   if (building.occupants.length >= 4) return;
   n.job = building;
   building.occupants.push(n.id);
+  if (!(opts && opts.silent)) addHistory(n, `${FACILITY_TYPES[building.type].name}に配属された`);
   if (phaseAt(G.clockHours) === 'work') { n.activity = 'work'; moveNpcTo(n, building, buildingFloorIndex(building)); }
 }
 
@@ -440,9 +487,11 @@ function transferNpc(npcId, newBuilding) {
   const oldBuilding = n.job;
   const oldInfo = FACILITY_TYPES[oldBuilding.type];
   unassignNpc(npcId, oldBuilding);
-  assignNpc(npcId, newBuilding);
+  assignNpc(npcId, newBuilding, { silent: true });
   G.transferNpcId = null;
-  G.log.unshift(`${n.name}が${oldInfo.name}から${FACILITY_TYPES[newBuilding.type].name}へ異動した`);
+  const newInfo = FACILITY_TYPES[newBuilding.type];
+  addHistory(n, `${oldInfo.name}から${newInfo.name}へ異動した`);
+  G.log.unshift(`${n.name}が${oldInfo.name}から${newInfo.name}へ異動した`);
 }
 
 // ---------- 給料の支給(日次) ----------
@@ -478,7 +527,9 @@ function tickQuitCheck() {
       const info = FACILITY_TYPES[building.type];
       unassignNpc(n.id, building);
       const lines = sour ? QUIT_LINES_SOUR : QUIT_LINES_RANDOM;
-      G.log.unshift(pick(lines)(n.name, info.name));
+      const line = pick(lines)(n.name, info.name);
+      addHistory(n, sour ? `人間関係に疲れ、${info.name}を辞めた` : `${info.name}を辞めた`);
+      G.log.unshift(line);
     }
   });
 }

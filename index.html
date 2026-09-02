@@ -82,6 +82,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 #controls button:active{background:var(--gold);color:#1a1424}
 #controls .interact{background:#3a2c1a;border-color:var(--gold);color:var(--gold);font-weight:700;width:auto;padding:0 20px;font-size:13px}
 #controls .debug{background:#2a1a1a;border-color:#8a4a4a;color:#e0a0a0;font-size:11px;width:auto;padding:0 10px}
+#controls .logbtn{background:#1a2a3a;border-color:#4a7aa8;color:#a0c8e0;font-size:11px;width:auto;padding:0 10px}
 #controls .floorbtn{background:#2a2a3a;border-color:#5a5a7a;color:#b8b8d8;font-size:12px;width:auto;padding:0 10px}
 .hint-desktop{font-size:11px;color:var(--ink-dim);width:100%;text-align:center}
 
@@ -121,6 +122,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .panel-hint-note{font-size:10px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
 .chat-preview{background:var(--panel2);border-left:3px solid var(--gold);border-radius:6px;
   padding:8px 10px;margin-bottom:8px;font-size:12px}
+.panel.history{max-height:64vh;overflow-y:auto}
+.history-list{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}
+.history-row{background:var(--panel2);border-left:2px solid var(--line);border-radius:4px;
+  padding:6px 10px;font-size:12px;line-height:1.5}
+.history-day{color:var(--gold);font-size:10px;margin-right:8px;font-weight:700}
+.panel.logfeed{max-height:64vh;overflow-y:auto}
+.log-list{display:flex;flex-direction:column;gap:5px;max-height:50vh;overflow-y:auto}
+.log-row{background:var(--panel2);border-left:2px solid #4a7aa8;border-radius:4px;
+  padding:6px 10px;font-size:12px;line-height:1.5}
 
 #transferBanner{background:#3a2c1a;border-bottom:1px solid var(--gold);color:var(--gold);
   font-size:11px;padding:6px 16px;display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap}
@@ -145,6 +155,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
     <button onclick="btnMove(1)">▶</button>
     <button onclick="btnFloor(-1)" class="floorbtn">▼降りる</button>
     <button class="debug" onclick="btnSkipHours(3)" title="動作確認用: 時間を3時間進める">+3h</button>
+    <button class="logbtn" onclick="btnShowLog()" title="最近の出来事を見る">📰ログ</button>
     <span class="hint-desktop">← → で移動 / 🪜階段の上で ↑↓ 昇降 / Spaceでインタラクト</span>
   </div>
 </div>

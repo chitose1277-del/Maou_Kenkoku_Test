@@ -137,6 +137,34 @@ const UI = {
 
   renderOverlay() {
     const root = $('#overlay');
+    if (G.logPanelOpen) {
+      const entries = G.log.length
+        ? G.log.slice(0, 40).map(t => `<div class="log-row">${t}</div>`).join('')
+        : `<div class="roster-empty">まだ何も起きていない</div>`;
+      root.innerHTML = `<div class="panel logfeed">
+        <div class="panel-head">最近の出来事</div>
+        <div class="log-list">${entries}</div>
+        <div class="panel-hint"><button class="mini-btn" onclick="doCloseLog()">閉じる</button></div>
+      </div>`;
+      root.classList.add('show');
+      return;
+    }
+    if (G.historyNpcId !== null) {
+      const n = G.npcs.find(x => x.id === G.historyNpcId);
+      if (!n) { G.historyNpcId = null; }
+      else {
+        const entries = n.history.length
+          ? n.history.slice().reverse().map(h => `<div class="history-row"><span class="history-day">${h.day}日目</span>${h.text}</div>`).join('')
+          : `<div class="roster-empty">まだ何も記録がない</div>`;
+        root.innerHTML = `<div class="panel history">
+          <div class="panel-head">${n.name} の経歴 <small class="mini">${n.species}</small></div>
+          <div class="history-list">${entries}</div>
+          <div class="panel-hint"><button class="mini-btn" onclick="doCloseHistory()">閉じる</button></div>
+        </div>`;
+        root.classList.add('show');
+        return;
+      }
+    }
     if (G.activeDialogue) {
       root.innerHTML = `<div class="panel dialogue">
         <div class="panel-head">${G.activeDialogue.name}</div>
@@ -161,6 +189,7 @@ const UI = {
         return `<div class="roster-row">
           ${img('btl.sp_' + n.speciesKey, 'sprite-sm')}
           <span>${n.name} <small>${n.species} ・ ${ACTIVITY_LABEL[n.activity] || '待機'} ・ 💰${n.money}G</small>${bfHtml}</span>
+          <button class="mini-btn" onclick="doShowHistory(${n.id})">経歴</button>
           ${actionHtml}
         </div>`;
       };
@@ -247,6 +276,10 @@ function doBuild(type) {
   if (!result) { flashToast('資材が足りません'); return; }
   UI.render();
 }
+function doShowHistory(npcId) { G.historyNpcId = npcId; UI.render(); }
+function btnShowLog() { G.logPanelOpen = true; UI.render(); }
+function doCloseLog() { G.logPanelOpen = false; UI.render(); }
+function doCloseHistory() { G.historyNpcId = null; UI.render(); }
 function doAssign(npcId) { assignNpc(npcId, G.assignMenuBuilding); UI.render(); }
 function doUnassign(npcId) { unassignNpc(npcId, G.assignMenuBuilding); UI.render(); }
 function doTransferHere() {
@@ -298,6 +331,9 @@ function btnSkipHours(h) {
   const iterations = Math.round(h * 60);
   for (let i = 0; i < iterations; i++) tickClock(200);
   tickSchedule(); tickChat();
+
+
+  
   UI.render();
 }
 

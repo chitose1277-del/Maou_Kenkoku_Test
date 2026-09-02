@@ -17,6 +17,17 @@ const NAME_TAIL = ['ガス', 'ドラ', 'ケル', 'ナ', 'モス', 'ザク', 'リ
 // 4軸性格: open(開/閉) dream(地/夢) logic(理/情) rule(律/気)、各-100〜100
 function randAxis() { return Math.round((Math.random() * 2 - 1) * 100); }
 
+// 世界パート連携(体験版簡略版・5国のみ)
+// v0.4世界パート仕様書の産品を、内政パートの資源(石材・木材・研究点)に変換する最小限の連携。
+// 将来Unity側と繋ぐ際は、この品目リスト+変換テーブルをそのままAPI/データ交換の仕様として使う想定。
+const TRADE_NATIONS = {
+  gromhalt:   { name: '鉄髭王国・グロムハルト', good: '鉱石', convertsTo: 'stone', amount: 6 },
+  sylvalain:  { name: '白樹の森・シルヴァレイン', good: '魔法木材', convertsTo: 'wood', amount: 5 },
+  azuramein:  { name: '潮の都・アズラメイン', good: 'レアメタル', convertsTo: 'stone', amount: 4 },
+  caravanserai:{ name: '隊商都市カラヴァンサライ', good: '香辛料酒', convertsTo: 'gold', amount: 8 },
+  fenrow:     { name: '緑陰郷・フェンロウ', good: '穀物', convertsTo: 'wood', amount: 3 },
+};
+
 // 施設マスタ(v0.4追補 §2.3の一部を採用)
 // tileW: 横方向の占有マス数。1マス=TILE_SIZE px(サイドビューなので高さは1フロア分で統一)
 const FACILITY_TYPES = {
