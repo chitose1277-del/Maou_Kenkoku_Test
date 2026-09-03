@@ -48,7 +48,8 @@ const FACILITY_TYPES = {
               spend: { min: 5, max: 20, items: ['応援グッズ'] } },
   dorm:     { name: '宿舎',     icon: 'golem',    cost: { wood: 10 }, floorHint: '木材10', customers: false, tileW: 3 },
   library:  { name: '図書館',   icon: 'sylph',    cost: { rp: 200 }, floorHint: '研究点200', customers: false, tileW: 2 },
-  lab:      { name: '研究院',   icon: 'wyvern',   cost: { stone: 14 }, floorHint: '石材14', customers: false, tileW: 3 },
+  lab:      { name: '研究院',   icon: 'wyvern',   cost: { stone: 14 }, floorHint: '石材14', customers: false, tileW: 3,
+              produce: { key: 'rp', amount: 1 } },
 };
 
 // 施設ごとの会話ネタ(occupantが2体以上いる時に使う)

@@ -235,7 +235,7 @@ const UI = {
           <div class="roster-col-label">客(${customers.length}/3・ふらっと立ち寄り中)</div>
           <div class="roster-list">${customerHtml}</div>` : '';
         const produceNote = info.produce
-          ? `<div class="panel-hint-note">就業中のスタッフ1体につき ${info.produce.amount} ${info.produce.key === 'stone' ? '石材' : '木材'}/4秒 を産出中(現在 ${staff.filter(n => n.activity === 'work').length}体稼働)</div>`
+          ? `<div class="panel-hint-note">就業中のスタッフ1体につき ${info.produce.amount} ${info.produce.key === 'stone' ? '石材' : info.produce.key === 'wood' ? '木材' : '研究点'}/4秒 を産出中(現在 ${staff.filter(n => n.activity === 'work').length}体稼働)</div>`
           : '';
         body = `
           <div class="roster-col-label">スタッフ(${staff.length}/4)</div>
